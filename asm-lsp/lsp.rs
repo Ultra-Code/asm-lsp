@@ -1,3 +1,4 @@
+use crate::ustr;
 use std::collections::{HashMap, HashSet};
 use std::convert::TryFrom;
 use std::fs::{create_dir_all, File};
@@ -179,7 +180,7 @@ fn get_default_include_dirs() -> Vec<PathBuf> {
             .output()
         {
             if cmd_output.status.success() {
-                let output_str: String = String::from_utf8(cmd_output.stderr).unwrap_or_default();
+                let output_str: String = ustr::get_string(cmd_output.stderr);
 
                 output_str
                     .lines()
@@ -400,10 +401,8 @@ pub fn apply_compile_cmd(
                         .output()
                     {
                         Ok(result) => {
-                            if let Ok(output_str) = String::from_utf8(result.stderr) {
-                                get_diagnostics(diagnostics, &output_str);
-                                return;
-                            }
+                            let output_str = ustr::get_string(result.stderr);
+                            get_diagnostics(diagnostics, &output_str);
                         }
                         Err(e) => {
                             warn!("Failed to launch compile command process with {compiler} -- Error: {e}");
@@ -422,9 +421,8 @@ pub fn apply_compile_cmd(
                         return;
                     }
                 };
-                if let Ok(output_str) = String::from_utf8(output.stderr) {
-                    get_diagnostics(diagnostics, &output_str);
-                }
+                let output_str = ustr::get_string(output.stderr);
+                get_diagnostics(diagnostics, &output_str);
             }
         }
     } else if let Some(args) = compile_cmd.args_from_cmd() {
@@ -438,9 +436,8 @@ pub fn apply_compile_cmd(
                 return;
             }
         };
-        if let Ok(output_str) = String::from_utf8(output.stderr) {
-            get_diagnostics(diagnostics, &output_str);
-        }
+        let output_str = ustr::get_string(output.stderr);
+        get_diagnostics(diagnostics, &output_str);
     }
 }
 
