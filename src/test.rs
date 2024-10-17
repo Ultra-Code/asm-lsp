@@ -26,7 +26,7 @@ mod tests {
 
     fn empty_test_config() -> Config {
         Config {
-            version: "0.1".to_string(),
+            version: Some("0.1".to_string()),
             assemblers: Assemblers {
                 gas: Some(false),
                 go: Some(false),
@@ -52,7 +52,7 @@ mod tests {
 
     fn z80_test_config() -> Config {
         Config {
-            version: "0.1".to_string(),
+            version: Some("0.1".to_string()),
             assemblers: Assemblers {
                 gas: Some(false),
                 go: Some(false),
@@ -78,7 +78,7 @@ mod tests {
 
     fn arm_test_config() -> Config {
         Config {
-            version: "0.1".to_string(),
+            version: Some("0.1".to_string()),
             assemblers: Assemblers {
                 gas: Some(false),
                 go: Some(false),
@@ -104,7 +104,7 @@ mod tests {
 
     fn riscv_test_config() -> Config {
         Config {
-            version: "0.1".to_string(),
+            version: Some("0.1".to_string()),
             assemblers: Assemblers {
                 gas: Some(false),
                 go: Some(false),
@@ -130,7 +130,7 @@ mod tests {
 
     fn x86_x86_64_test_config() -> Config {
         Config {
-            version: "0.1".to_string(),
+            version: Some("0.1".to_string()),
             assemblers: Assemblers {
                 gas: Some(true),
                 go: Some(true),
@@ -156,7 +156,7 @@ mod tests {
 
     fn gas_test_config() -> Config {
         Config {
-            version: "0.1".to_string(),
+            version: Some("0.1".to_string()),
             assemblers: Assemblers {
                 gas: Some(true),
                 go: Some(false),
@@ -182,7 +182,7 @@ mod tests {
 
     fn masm_test_config() -> Config {
         Config {
-            version: "0.1".to_string(),
+            version: Some("0.1".to_string()),
             assemblers: Assemblers {
                 gas: Some(false),
                 go: Some(false),
@@ -208,7 +208,7 @@ mod tests {
 
     fn nasm_test_config() -> Config {
         Config {
-            version: "0.1".to_string(),
+            version: Some("0.1".to_string()),
             assemblers: Assemblers {
                 gas: Some(false),
                 go: Some(false),

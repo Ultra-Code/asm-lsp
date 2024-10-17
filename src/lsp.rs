@@ -28,8 +28,8 @@ use tree_sitter::InputEdit;
 
 use crate::types::Column;
 use crate::{
-    Arch, ArchOrAssembler, Assembler, Completable, Config, Hoverable, Instruction, LspClient,
-    NameToInstructionMap, TreeEntry, TreeStore,
+    Arch, ArchOrAssembler, Assembler, Completable, Config, Directive, Instruction, LspClient,
+    NameToInstructionMap, Register, RootConfig, TreeEntry, TreeStore,
 };
 
 /// Sends an empty, non-error response to the lsp client via `connection`
@@ -602,46 +602,47 @@ pub fn get_completes<T: Completable, U: ArchOrAssembler>(
 
 #[allow(clippy::too_many_arguments)]
 #[must_use]
-pub fn get_hover_resp<T: Hoverable, U: Hoverable, V: Hoverable>(
+pub fn get_hover_resp(
     params: &HoverParams,
     config: &Config,
     word: &str,
     text_store: &TextDocuments,
     tree_store: &mut TreeStore,
-    instruction_map: &HashMap<(Arch, &str), T>,
-    register_map: &HashMap<(Arch, &str), U>,
-    directive_map: &HashMap<(Assembler, &str), V>,
+    instruction_map: &HashMap<(Arch, &str), &Instruction>,
+    register_map: &HashMap<(Arch, &str), &Register>,
+    directive_map: &HashMap<(Assembler, &str), &Directive>,
     include_dirs: &HashMap<SourceFile, Vec<PathBuf>>,
 ) -> Option<Hover> {
-    let instr_lookup = lookup_hover_resp_by_arch(word, instruction_map);
+    let instr_lookup = get_instr_hover_resp(word, instruction_map, config);
     if instr_lookup.is_some() {
         return instr_lookup;
     }
 
+    // TODO: Do the directive lookups next
     // directive lookup
     {
         if config.assemblers.gas.unwrap_or(false) || config.assemblers.masm.unwrap_or(false) {
             // all gas directives have a '.' prefix, some masm directives do
-            let directive_lookup = lookup_hover_resp_by_assembler(word, directive_map);
+            let directive_lookup = get_directive_hover_resp(word, directive_map, config);
             if directive_lookup.is_some() {
                 return directive_lookup;
             }
         } else if config.assemblers.nasm.unwrap_or(false) {
             // most nasm directives have no prefix, 2 have a '.' prefix
-            let directive_lookup = lookup_hover_resp_by_assembler(word, directive_map);
+            let directive_lookup = get_directive_hover_resp(word, directive_map, config);
             if directive_lookup.is_some() {
                 return directive_lookup;
             }
             // Some nasm directives have a % prefix
             let prefixed = format!("%{word}");
-            let directive_lookup = lookup_hover_resp_by_assembler(&prefixed, directive_map);
+            let directive_lookup = get_directive_hover_resp(&prefixed, directive_map, config);
             if directive_lookup.is_some() {
                 return directive_lookup;
             }
         }
     }
 
-    let reg_lookup = lookup_hover_resp_by_arch(word, register_map);
+    let reg_lookup = get_reg_hover_resp(word, register_map, config);
     if reg_lookup.is_some() {
         return reg_lookup;
     }
@@ -673,115 +674,320 @@ pub fn get_hover_resp<T: Hoverable, U: Hoverable, V: Hoverable>(
     None
 }
 
-fn lookup_hover_resp_by_arch<T: Hoverable>(
-    word: &str,
-    map: &HashMap<(Arch, &str), T>,
-) -> Option<Hover> {
-    // switch over to vec?
-    let (x86_resp, x86_64_resp, z80_resp, arm_resp, riscv_resp) =
-        search_for_hoverable_by_arch(word, map);
-    match (
-        x86_resp.is_some(),
-        x86_64_resp.is_some(),
-        z80_resp.is_some(),
-        arm_resp.is_some(),
-        riscv_resp.is_some(),
-    ) {
-        (true, _, _, _, _)
-        | (_, true, _, _, _)
-        | (_, _, true, _, _)
-        | (_, _, _, true, _)
-        | (_, _, _, _, true) => {
-            let mut value = String::new();
-            if let Some(x86_resp) = x86_resp {
-                value += &format!("{x86_resp}");
-            }
-            if let Some(x86_64_resp) = x86_64_resp {
-                value += &format!(
-                    "{}{}",
-                    if value.is_empty() { "" } else { "\n\n" },
-                    x86_64_resp
-                );
-            }
-            if let Some(z80_resp) = z80_resp {
-                value += &format!("{}{}", if value.is_empty() { "" } else { "\n\n" }, z80_resp);
-            }
-            if let Some(arm_resp) = arm_resp {
-                value += &format!("{}{}", if value.is_empty() { "" } else { "\n\n" }, arm_resp);
-            }
-            if let Some(riscv_resp) = riscv_resp {
-                value += &format!(
-                    "{}{}",
-                    if value.is_empty() { "" } else { "\n\n" },
-                    riscv_resp
-                );
-            }
-            Some(Hover {
-                contents: HoverContents::Markup(MarkupContent {
-                    kind: MarkupKind::Markdown,
-                    value,
-                }),
-                range: None,
-            })
-        }
-        _ => {
-            // don't know of this word
-            None
-        }
+#[derive(Debug, Clone, Copy)]
+struct InstructionResp<'a> {
+    pub x86: Option<&'a Instruction>,
+    pub x86_64: Option<&'a Instruction>,
+    pub z80: Option<&'a Instruction>,
+    pub arm: Option<&'a Instruction>,
+    pub riscv: Option<&'a Instruction>,
+}
+
+impl InstructionResp<'_> {
+    const fn has_resp(&self) -> bool {
+        self.x86.is_some()
+            || self.x86_64.is_some()
+            || self.z80.is_some()
+            || self.arm.is_some()
+            || self.riscv.is_some()
     }
 }
 
-fn lookup_hover_resp_by_assembler<T: Hoverable>(
-    word: &str,
-    map: &HashMap<(Assembler, &str), T>,
-) -> Option<Hover> {
-    let (gas_resp, go_resp, masm_resp, nasm_resp) = search_for_hoverable_by_assembler(word, map);
+#[derive(Debug, Clone, Copy)]
+struct RegisterResp<'a> {
+    pub x86: Option<&'a Register>,
+    pub x86_64: Option<&'a Register>,
+    pub z80: Option<&'a Register>,
+    pub arm: Option<&'a Register>,
+    pub riscv: Option<&'a Register>,
+}
 
-    match (
-        gas_resp.is_some(),
-        go_resp.is_some(),
-        masm_resp.is_some(),
-        nasm_resp.is_some(),
-    ) {
-        (true, _, _, _) | (_, true, _, _) | (_, _, true, _) | (_, _, _, true) => {
-            let mut value = String::new();
-            if let Some(gas_resp) = gas_resp {
-                value += &format!("{gas_resp}");
-            }
-            if let Some(go_resp) = go_resp {
-                value += &format!(
-                    "{}{}",
-                    if gas_resp.is_some() { "\n\n" } else { "" },
-                    go_resp
-                );
-            }
-            if let Some(masm_resp) = masm_resp {
-                value += &format!(
-                    "{}{}",
-                    if !value.is_empty() { "\n\n" } else { "" },
-                    masm_resp
-                );
-            }
-            if let Some(nasm_resp) = nasm_resp {
-                value += &format!(
-                    "{}{}",
-                    if !value.is_empty() { "\n\n" } else { "" },
-                    nasm_resp
-                );
-            }
-            Some(Hover {
-                contents: HoverContents::Markup(MarkupContent {
-                    kind: MarkupKind::Markdown,
-                    value,
-                }),
-                range: None,
-            })
+impl RegisterResp<'_> {
+    const fn has_resp(&self) -> bool {
+        self.x86.is_some()
+            || self.x86_64.is_some()
+            || self.z80.is_some()
+            || self.arm.is_some()
+            || self.riscv.is_some()
+    }
+}
+
+impl std::fmt::Display for RegisterResp<'_> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let mut has_entry = false;
+        if let Some(resp) = self.x86 {
+            write!(f, "{}{}", if has_entry { "\n\n" } else { "" }, resp)?;
+            has_entry = true;
         }
-        _ => {
-            // don't know of this word
+        if let Some(resp) = self.x86_64 {
+            write!(f, "{}{}", if has_entry { "\n\n" } else { "" }, resp)?;
+            has_entry = true;
+        }
+        if let Some(resp) = self.z80 {
+            write!(f, "{}{}", if has_entry { "\n\n" } else { "" }, resp)?;
+            has_entry = true;
+        }
+        if let Some(resp) = self.arm {
+            write!(f, "{}{}", if has_entry { "\n\n" } else { "" }, resp)?;
+            has_entry = true;
+        }
+        if let Some(resp) = self.riscv {
+            write!(f, "{}{}", if has_entry { "\n\n" } else { "" }, resp)?;
+        }
+        Ok(())
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
+struct DirectiveResp<'a> {
+    pub gas: Option<&'a Directive>,
+    pub go: Option<&'a Directive>,
+    pub z80: Option<&'a Directive>,
+    pub masm: Option<&'a Directive>,
+    pub nasm: Option<&'a Directive>,
+}
+
+impl DirectiveResp<'_> {
+    const fn has_resp(&self) -> bool {
+        self.gas.is_some()
+            || self.go.is_some()
+            || self.z80.is_some()
+            || self.masm.is_some()
+            || self.nasm.is_some()
+    }
+}
+
+impl std::fmt::Display for DirectiveResp<'_> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let mut has_entry = false;
+        if let Some(resp) = self.gas {
+            write!(f, "{}{}", if has_entry { "\n\n" } else { "" }, resp)?;
+            has_entry = true;
+        }
+        if let Some(resp) = self.go {
+            write!(f, "{}{}", if has_entry { "\n\n" } else { "" }, resp)?;
+            has_entry = true;
+        }
+        if let Some(resp) = self.z80 {
+            write!(f, "{}{}", if has_entry { "\n\n" } else { "" }, resp)?;
+            has_entry = true;
+        }
+        if let Some(resp) = self.masm {
+            write!(f, "{}{}", if has_entry { "\n\n" } else { "" }, resp)?;
+            has_entry = true;
+        }
+        if let Some(resp) = self.nasm {
+            write!(f, "{}{}", if has_entry { "\n\n" } else { "" }, resp)?;
+        }
+        Ok(())
+    }
+}
+
+fn search_for_instr_by_arch<'a>(
+    word: &'a str,
+    instr_map: &'a HashMap<(Arch, &str), &Instruction>,
+    config: &Config,
+) -> InstructionResp<'a> {
+    let lookup = |instr_map: &'a HashMap<(Arch, &'a str), &Instruction>,
+                  arch: Arch,
+                  word: &'a str,
+                  check: bool|
+     -> Option<&'a Instruction> {
+        if check {
+            instr_map.get(&(arch, word)).copied()
+        } else {
             None
         }
+    };
+
+    let instr_sets = &config.instruction_sets;
+    InstructionResp {
+        x86: lookup(instr_map, Arch::X86, word, instr_sets.x86.unwrap_or(false)),
+        x86_64: lookup(
+            instr_map,
+            Arch::X86_64,
+            word,
+            instr_sets.x86_64.unwrap_or(false),
+        ),
+        z80: lookup(instr_map, Arch::Z80, word, instr_sets.z80.unwrap_or(false)),
+        arm: lookup(instr_map, Arch::ARM, word, instr_sets.arm.unwrap_or(false)),
+        riscv: lookup(
+            instr_map,
+            Arch::RISCV,
+            word,
+            instr_sets.riscv.unwrap_or(false),
+        ),
     }
+}
+
+fn search_for_reg_by_arch<'a>(
+    word: &'a str,
+    reg_map: &'a HashMap<(Arch, &str), &Register>,
+    config: &Config,
+) -> RegisterResp<'a> {
+    let lookup = |reg_map: &'a HashMap<(Arch, &'a str), &Register>,
+                  arch: Arch,
+                  word: &'a str,
+                  check: bool|
+     -> Option<&'a Register> {
+        if check {
+            reg_map.get(&(arch, word)).copied()
+        } else {
+            None
+        }
+    };
+    let instr_sets = &config.instruction_sets;
+    RegisterResp {
+        x86: lookup(reg_map, Arch::X86, word, instr_sets.x86.unwrap_or(false)),
+        x86_64: lookup(
+            reg_map,
+            Arch::X86_64,
+            word,
+            instr_sets.x86_64.unwrap_or(false),
+        ),
+        z80: lookup(reg_map, Arch::Z80, word, instr_sets.z80.unwrap_or(false)),
+        arm: lookup(reg_map, Arch::ARM, word, instr_sets.arm.unwrap_or(false)),
+        riscv: lookup(
+            reg_map,
+            Arch::RISCV,
+            word,
+            instr_sets.riscv.unwrap_or(false),
+        ),
+    }
+}
+
+fn search_for_dir_by_assembler<'a>(
+    word: &'a str,
+    reg_map: &'a HashMap<(Assembler, &str), &Directive>,
+    config: &Config,
+) -> DirectiveResp<'a> {
+    let lookup = |reg_map: &'a HashMap<(Assembler, &'a str), &Directive>,
+                  arch: Assembler,
+                  word: &'a str,
+                  check: bool|
+     -> Option<&'a Directive> {
+        if check {
+            reg_map.get(&(arch, word)).copied()
+        } else {
+            None
+        }
+    };
+
+    let assemblers = &config.assemblers;
+    DirectiveResp {
+        gas: lookup(
+            reg_map,
+            Assembler::Gas,
+            word,
+            assemblers.gas.unwrap_or(false),
+        ),
+        go: lookup(reg_map, Assembler::Go, word, assemblers.go.unwrap_or(false)),
+        z80: lookup(
+            reg_map,
+            Assembler::Z80,
+            word,
+            assemblers.z80.unwrap_or(false),
+        ),
+        masm: lookup(
+            reg_map,
+            Assembler::Masm,
+            word,
+            assemblers.masm.unwrap_or(false),
+        ),
+        nasm: lookup(
+            reg_map,
+            Assembler::Nasm,
+            word,
+            assemblers.nasm.unwrap_or(false),
+        ),
+    }
+}
+
+fn get_instr_hover_resp(
+    word: &str,
+    instr_map: &HashMap<(Arch, &str), &Instruction>,
+    config: &Config,
+) -> Option<Hover> {
+    let instr_resp = search_for_instr_by_arch(word, instr_map, config);
+    if !instr_resp.has_resp() {
+        return None;
+    }
+
+    // lookups are already gated by `config` in `search_for_instr_by_arch`, no
+    // need to check `config` for each arch here
+    let mut has_entry = false;
+    let mut value = String::new();
+    if let Some(resp) = instr_resp.x86 {
+        // have to handle assembler-dependent information for x86/x86_64
+        value += &format!("{}", instr_filter_targets(resp, config));
+        has_entry = true;
+    }
+    if let Some(resp) = instr_resp.x86_64 {
+        // have to handle assembler-dependent information for x86/x86_64
+        value += &format!(
+            "{}{}",
+            if has_entry { "\n\n" } else { "" },
+            instr_filter_targets(resp, config)
+        );
+        has_entry = true;
+    }
+    if let Some(resp) = instr_resp.z80 {
+        value += &format!("{}{}", if has_entry { "\n\n" } else { "" }, resp);
+        has_entry = true;
+    }
+    if let Some(resp) = instr_resp.arm {
+        value += &format!("{}{}", if has_entry { "\n\n" } else { "" }, resp);
+        has_entry = true;
+    }
+    if let Some(resp) = instr_resp.riscv {
+        value += &format!("{}{}", if has_entry { "\n\n" } else { "" }, resp);
+    }
+
+    Some(Hover {
+        contents: HoverContents::Markup(MarkupContent {
+            kind: MarkupKind::Markdown,
+            value,
+        }),
+        range: None,
+    })
+}
+
+fn get_reg_hover_resp(
+    word: &str,
+    reg_map: &HashMap<(Arch, &str), &Register>,
+    config: &Config,
+) -> Option<Hover> {
+    let reg_resp = search_for_reg_by_arch(word, reg_map, config);
+    if !reg_resp.has_resp() {
+        return None;
+    }
+
+    Some(Hover {
+        contents: HoverContents::Markup(MarkupContent {
+            kind: MarkupKind::Markdown,
+            value: reg_resp.to_string(),
+        }),
+        range: None,
+    })
+}
+
+fn get_directive_hover_resp(
+    word: &str,
+    dir_map: &HashMap<(Assembler, &str), &Directive>,
+    config: &Config,
+) -> Option<Hover> {
+    let dir_resp = search_for_dir_by_assembler(word, dir_map, config);
+    if !dir_resp.has_resp() {
+        return None;
+    }
+
+    Some(Hover {
+        contents: HoverContents::Markup(MarkupContent {
+            kind: MarkupKind::Markdown,
+            value: dir_resp.to_string(),
+        }),
+        range: None,
+    })
 }
 
 /// Returns the data associated with a given label `word`
@@ -1065,6 +1271,7 @@ pub fn get_comp_resp(
                 let arg_start = cap.node.range().start_point;
                 let arg_end = cap.node.range().end_point;
                 if cursor_matches!(cursor_line, cursor_char, arg_start, arg_end) {
+                    // TODO: Pass in config here to filter
                     let items = filtered_comp_list(dir_comps);
                     return Some(CompletionList {
                         is_incomplete: true,
@@ -1083,6 +1290,7 @@ pub fn get_comp_resp(
         static QUERY_LABEL: Lazy<tree_sitter::Query> = Lazy::new(|| {
             tree_sitter::Query::new(&tree_sitter_asm::language(), "(label (ident) @label)").unwrap()
         });
+        // TODO: Filter shit here too
         let captures = doc_cursor.captures(&QUERY_LABEL, tree.root_node(), curr_doc);
         let mut labels = HashSet::new();
         for caps in captures.map(|c| c.0) {
@@ -1142,6 +1350,7 @@ pub fn get_comp_resp(
                 let arg_start = cap.node.range().start_point;
                 let arg_end = cap.node.range().end_point;
                 if cursor_matches!(cursor_line, cursor_char, arg_start, arg_end) {
+                    // TODO: More filtering here...
                     // an instruction is always capture #0 for this query, any capture
                     // number after must be a register or label
                     let is_instr = cap_num == 0;
@@ -1270,9 +1479,11 @@ pub fn get_document_symbols(
     }
 }
 
+#[allow(clippy::too_many_lines)]
 pub fn get_sig_help_resp(
     curr_doc: &str,
     params: &SignatureHelpParams,
+    config: &Config,
     tree_entry: &mut TreeEntry,
     instr_info: &NameToInstructionMap,
 ) -> Option<SignatureHelp> {
@@ -1314,9 +1525,11 @@ pub fn get_sig_help_resp(
                     let mut has_x86_64 = false;
                     let mut has_z80 = false;
                     let mut has_arm = false;
-                    let (x86_info, x86_64_info, z80_info, arm_info, riscv_info) =
-                        search_for_hoverable_by_arch(instr_name, instr_info);
-                    if let Some(sig) = x86_info {
+                    let instr_resp = search_for_instr_by_arch(instr_name, instr_info, config);
+                    if !instr_resp.has_resp() {
+                        return None;
+                    }
+                    if let Some(sig) = instr_resp.x86 {
                         for form in &sig.forms {
                             if let Some(ref gas_name) = form.gas_name {
                                 if instr_name.eq_ignore_ascii_case(gas_name) {
@@ -1337,7 +1550,7 @@ pub fn get_sig_help_resp(
                             }
                         }
                     }
-                    if let Some(sig) = x86_64_info {
+                    if let Some(sig) = instr_resp.x86_64 {
                         for form in &sig.forms {
                             if let Some(ref gas_name) = form.gas_name {
                                 if instr_name.eq_ignore_ascii_case(gas_name) {
@@ -1358,7 +1571,7 @@ pub fn get_sig_help_resp(
                             }
                         }
                     }
-                    if let Some(sig) = z80_info {
+                    if let Some(sig) = instr_resp.z80 {
                         for form in &sig.forms {
                             if let Some(ref z80_name) = form.z80_name {
                                 if instr_name.eq_ignore_ascii_case(z80_name) {
@@ -1371,7 +1584,7 @@ pub fn get_sig_help_resp(
                             }
                         }
                     }
-                    if let Some(sig) = arm_info {
+                    if let Some(sig) = instr_resp.arm {
                         for form in &sig.asm_templates {
                             if !has_arm {
                                 value += "**arm**\n";
@@ -1380,7 +1593,7 @@ pub fn get_sig_help_resp(
                             value += &format!("{form}\n");
                         }
                     }
-                    if let Some(sig) = riscv_info {
+                    if let Some(sig) = instr_resp.riscv {
                         for form in &sig.asm_templates {
                             if !has_arm {
                                 value += "**riscv**\n";
@@ -1548,68 +1761,39 @@ pub fn get_ref_resp(
     refs.into_iter().collect()
 }
 
-// Note: Some issues here regarding entangled lifetimes
-// -- https://github.com/rust-lang/rust/issues/80389
-// If issue is resolved, can add a separate lifetime "'b" to "word"
-// parameter such that 'a: 'b
-// For now, using 'a for both isn't strictly necessary, but fits our use case
-#[allow(clippy::type_complexity)]
-fn search_for_hoverable_by_arch<'a, T: Hoverable>(
-    word: &'a str,
-    map: &'a HashMap<(Arch, &str), T>,
-) -> (
-    Option<&'a T>,
-    Option<&'a T>,
-    Option<&'a T>,
-    Option<&'a T>,
-    Option<&'a T>,
-) {
-    let x86_resp = map.get(&(Arch::X86, word));
-    let x86_64_resp = map.get(&(Arch::X86_64, word));
-    let z80_resp = map.get(&(Arch::Z80, word));
-    let arm_resp = map.get(&(Arch::ARM, word));
-    let riscv_resp = map.get(&(Arch::RISCV, word));
-
-    (x86_resp, x86_64_resp, z80_resp, arm_resp, riscv_resp)
-}
-
-fn search_for_hoverable_by_assembler<'a, T: Hoverable>(
-    word: &'a str,
-    map: &'a HashMap<(Assembler, &str), T>,
-) -> (Option<&'a T>, Option<&'a T>, Option<&'a T>, Option<&'a T>) {
-    let gas_resp = map.get(&(Assembler::Gas, word));
-    let go_resp = map.get(&(Assembler::Go, word));
-    let masm_resp = map.get(&(Assembler::Masm, word));
-    let nasm_resp = map.get(&(Assembler::Nasm, word));
-
-    (gas_resp, go_resp, masm_resp, nasm_resp)
-}
-
 /// Searches for global config in ~/.config/asm-lsp, then the project's directory
 /// Project specific configs will override global configs
 #[must_use]
-pub fn get_config(params: &InitializeParams) -> Config {
+pub fn get_config(params: &InitializeParams) -> RootConfig {
     let mut config = match (get_global_config(), get_project_config(params)) {
         (_, Some(proj_cfg)) => proj_cfg,
         (Some(global_cfg), None) => global_cfg,
-        (None, None) => Config::default(),
+        (None, None) => RootConfig::default(),
     };
 
-    // Want diagnostics enabled by default
-    if config.opts.diagnostics.is_none() {
-        config.opts.diagnostics = Some(true);
-    }
+    // TODO: Canonicalize `path`s in `projects`
 
-    // Want default diagnostics enabled by default
-    if config.opts.default_diagnostics.is_none() {
-        config.opts.default_diagnostics = Some(true);
+    if let Some(ref mut default_cfg) = config.default_config {
+        // Want diagnostics enabled by default
+        if default_cfg.opts.diagnostics.is_none() {
+            default_cfg.opts.diagnostics = Some(true);
+        }
+
+        // Want default diagnostics enabled by default
+        if default_cfg.opts.default_diagnostics.is_none() {
+            default_cfg.opts.default_diagnostics = Some(true);
+        }
+    } else {
+        // provide a default empty configuration for sub-directories
+        // not specified in `projects`
+        config.default_config = Some(Config::empty());
     }
 
     config
 }
 
 /// Checks ~/.config/asm-lsp for a config file, creating directories along the way as necessary
-fn get_global_config() -> Option<Config> {
+fn get_global_config() -> Option<RootConfig> {
     let mut paths = if cfg!(target_os = "macos") {
         // `$HOME`/Library/Application Support/ and `$HOME`/.config/
         vec![config_dir(), alt_mac_config_dir()]
@@ -1628,7 +1812,7 @@ fn get_global_config() -> Option<Config> {
                 #[allow(clippy::needless_borrows_for_generic_args)]
                 if let Ok(config) = std::fs::read_to_string(&cfg_path) {
                     let cfg_path_s = cfg_path.display();
-                    match toml::from_str::<Config>(&config) {
+                    match toml::from_str::<RootConfig>(&config) {
                         Ok(config) => {
                             info!("Parsing global asm-lsp config from file -> {cfg_path_s}\n");
                             return Some(config);
@@ -1712,13 +1896,13 @@ fn get_project_root(params: &InitializeParams) -> Option<PathBuf> {
 }
 
 /// checks for a config specific to the project's root directory
-fn get_project_config(params: &InitializeParams) -> Option<Config> {
+fn get_project_config(params: &InitializeParams) -> Option<RootConfig> {
     if let Some(mut path) = get_project_root(params) {
         path.push(".asm-lsp.toml");
         match std::fs::read_to_string(&path) {
             Ok(config) => {
                 let path_s = path.display();
-                match toml::from_str::<Config>(&config) {
+                match toml::from_str::<RootConfig>(&config) {
                     Ok(config) => {
                         info!("Parsing asm-lsp project config from file -> {path_s}");
                         return Some(config);
@@ -1757,9 +1941,6 @@ pub fn instr_filter_targets(instr: &Instruction, config: &Config) -> Instruction
             }
             if !config.assemblers.go.unwrap_or(false) {
                 filtered.go_name = None;
-            }
-            if !config.assemblers.z80.unwrap_or(false) {
-                filtered.z80_name = None;
             }
             filtered
         })

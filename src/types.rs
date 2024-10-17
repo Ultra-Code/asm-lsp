@@ -1,6 +1,7 @@
 use std::{
     collections::{BTreeMap, HashMap},
     fmt::Display,
+    path::PathBuf,
     str::FromStr,
 };
 
@@ -712,6 +713,8 @@ pub enum Assembler {
     Masm,
     #[strum(serialize = "nasm")]
     Nasm,
+    #[strum(serialize = "z80")]
+    Z80,
 }
 
 impl ArchOrAssembler for Assembler {}
@@ -823,6 +826,18 @@ impl Default for Assemblers {
     }
 }
 
+impl Assemblers {
+    fn empty() -> Self {
+        Self {
+            gas: Some(false),
+            go: Some(false),
+            masm: Some(false),
+            nasm: Some(false),
+            z80: Some(false),
+        }
+    }
+}
+
 #[allow(non_snake_case)]
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct InstructionSets {
@@ -845,10 +860,266 @@ impl Default for InstructionSets {
     }
 }
 
+impl InstructionSets {
+    fn empty() -> Self {
+        Self {
+            x86: Some(false),
+            x86_64: Some(false),
+            z80: Some(false),
+            arm: Some(false),
+            riscv: Some(false),
+        }
+    }
+}
+
+// TODO: Add logic handling empty configs (both `default_config` and `projects` = `None`)
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RootConfig {
+    #[serde(flatten)]
+    pub default_config: Option<Config>,
+    pub projects: Option<Vec<ProjectConfig>>,
+}
+
+impl Default for RootConfig {
+    fn default() -> Self {
+        Self {
+            default_config: Some(Config::default()),
+            projects: None,
+        }
+    }
+}
+
+impl RootConfig {
+    /// Returns the project-specific associated with `uri`, or the default if no
+    /// matching configuration is found
+    ///
+    /// # Panics
+    ///
+    /// Will panic if `req_uri` cannot be canonicalized
+    pub fn get_config<'a>(&'a self, req_uri: &'a Uri) -> &'a Config {
+        let Ok(req_path) = PathBuf::from_str(req_uri.path().as_str()) else {
+            unreachable!()
+        };
+        let request_path = match req_path.canonicalize() {
+            Ok(path) => path,
+            Err(e) => panic!("Invalid request path: {} - {e}", req_path.display()),
+        };
+        if let Some(projects) = &self.projects {
+            for project in projects {
+                if project.path.starts_with(&request_path) {
+                    return &project.config;
+                }
+            }
+        }
+        if let Some(root) = &self.default_config {
+            return root;
+        }
+
+        panic!(
+            "Invalid configuration for {} -- Must contain a per-project configuration or default",
+            request_path.display()
+        );
+    }
+
+    /// Sets the `client` field of the default config and all project configs
+    pub fn set_client(&mut self, client: LspClient) {
+        if let Some(ref mut root) = self.default_config {
+            root.client = Some(client);
+        }
+
+        if let Some(ref mut projects) = self.projects {
+            for project in projects {
+                project.config.client = Some(client);
+            }
+        }
+    }
+
+    // TODO: Can probably clean this up with some macro magic
+    #[must_use]
+    pub fn is_isa_enabled(&self, isa: Arch) -> bool {
+        if let Some(ref root) = self.default_config {
+            match isa {
+                Arch::X86 => {
+                    if root.instruction_sets.x86.unwrap_or(false) {
+                        return true;
+                    }
+                }
+                Arch::X86_64 => {
+                    if root.instruction_sets.x86_64.unwrap_or(false) {
+                        return true;
+                    }
+                }
+                Arch::ARM => {
+                    if root.instruction_sets.arm.unwrap_or(false) {
+                        return true;
+                    }
+                }
+                Arch::RISCV => {
+                    if root.instruction_sets.riscv.unwrap_or(false) {
+                        return true;
+                    }
+                }
+                Arch::Z80 => {
+                    if root.instruction_sets.z80.unwrap_or(false) {
+                        return true;
+                    }
+                }
+            }
+        }
+
+        if let Some(ref projects) = self.projects {
+            for project in projects {
+                match isa {
+                    Arch::X86 => {
+                        if project.config.instruction_sets.x86.unwrap_or(false) {
+                            return true;
+                        }
+                    }
+                    Arch::X86_64 => {
+                        if project.config.instruction_sets.x86_64.unwrap_or(false) {
+                            return true;
+                        }
+                    }
+                    Arch::ARM => {
+                        if project.config.instruction_sets.arm.unwrap_or(false) {
+                            return true;
+                        }
+                    }
+                    Arch::RISCV => {
+                        if project.config.instruction_sets.riscv.unwrap_or(false) {
+                            return true;
+                        }
+                    }
+                    Arch::Z80 => {
+                        if project.config.instruction_sets.z80.unwrap_or(false) {
+                            return true;
+                        }
+                    }
+                }
+            }
+        }
+
+        false
+    }
+
+    #[must_use]
+    pub fn is_assembler_enabled(&self, assembler: Assembler) -> bool {
+        if let Some(ref root) = self.default_config {
+            match assembler {
+                Assembler::Gas => {
+                    if root.assemblers.gas.unwrap_or(false) {
+                        return true;
+                    }
+                }
+                Assembler::Go => {
+                    if root.assemblers.go.unwrap_or(false) {
+                        return true;
+                    }
+                }
+                Assembler::Masm => {
+                    if root.assemblers.masm.unwrap_or(false) {
+                        return true;
+                    }
+                }
+                Assembler::Nasm => {
+                    if root.assemblers.nasm.unwrap_or(false) {
+                        return true;
+                    }
+                }
+                Assembler::Z80 => {
+                    if root.assemblers.z80.unwrap_or(false) {
+                        return true;
+                    }
+                }
+            }
+        }
+
+        if let Some(ref projects) = self.projects {
+            for project in projects {
+                match assembler {
+                    Assembler::Gas => {
+                        if project.config.assemblers.gas.unwrap_or(false) {
+                            return true;
+                        }
+                    }
+                    Assembler::Go => {
+                        if project.config.assemblers.go.unwrap_or(false) {
+                            return true;
+                        }
+                    }
+                    Assembler::Masm => {
+                        if project.config.assemblers.masm.unwrap_or(false) {
+                            return true;
+                        }
+                    }
+                    Assembler::Nasm => {
+                        if project.config.assemblers.nasm.unwrap_or(false) {
+                            return true;
+                        }
+                    }
+                    Assembler::Z80 => {
+                        if project.config.assemblers.z80.unwrap_or(false) {
+                            return true;
+                        }
+                    }
+                }
+            }
+        }
+
+        false
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ProjectConfig {
+    pub path: PathBuf,
+    #[serde(flatten)]
+    pub config: Config,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Config {
+    pub version: Option<String>,
+    pub assemblers: Assemblers,
+    pub instruction_sets: InstructionSets,
+    pub opts: ConfigOptions,
+    #[serde(skip)]
+    pub client: Option<LspClient>,
+}
+
+impl Default for Config {
+    fn default() -> Self {
+        Self {
+            version: Some(String::from("0.1")),
+            assemblers: Assemblers::default(),
+            instruction_sets: InstructionSets::default(),
+            opts: ConfigOptions::default(),
+            client: None,
+        }
+    }
+}
+
+impl Config {
+    #[must_use]
+    pub fn empty() -> Self {
+        Self {
+            version: None,
+            assemblers: Assemblers::empty(),
+            instruction_sets: InstructionSets::empty(),
+            opts: ConfigOptions::empty(),
+            client: None,
+        }
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ConfigOptions {
+    // Specify compiler to generate diagnostics via `compile_flags.txt`
     pub compiler: Option<String>,
+    // Turn diagnostics feature on/off
     pub diagnostics: Option<bool>,
+    // Turn default diagnostics (no compilation db detected) on/off
     pub default_diagnostics: Option<bool>,
 }
 
@@ -862,23 +1133,12 @@ impl Default for ConfigOptions {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct Config {
-    pub version: String,
-    pub assemblers: Assemblers,
-    pub instruction_sets: InstructionSets,
-    pub opts: ConfigOptions,
-    pub client: Option<LspClient>,
-}
-
-impl Default for Config {
-    fn default() -> Self {
+impl ConfigOptions {
+    fn empty() -> Self {
         Self {
-            version: String::from("0.1"),
-            assemblers: Assemblers::default(),
-            instruction_sets: InstructionSets::default(),
-            opts: ConfigOptions::default(),
-            client: None,
+            compiler: None,
+            diagnostics: Some(false),
+            default_diagnostics: Some(false),
         }
     }
 }

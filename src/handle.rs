@@ -218,6 +218,7 @@ pub fn handle_signature_help_request(
             let sig_resp = get_sig_help_resp(
                 doc.get_content(None),
                 params,
+                config,
                 tree_entry,
                 names_to_instructions,
             );
