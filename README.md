@@ -53,7 +53,7 @@ from the `assemblers` or `instruction_sets` sections is equivalent to setting it
 to `false`. Be default, diagnostics are enabled and the server attempts to invoke
 `gcc` (and then `clang`) to generate them. If the `compiler` config field is specified,
 the server will attempt to use the specified path to generate diagnostics. Different
-configurations can be created for different sub-directories within your project as 
+configurations can be created for different sub-directories within your project as
 `projects`. Source files not contained within any `project` configs will use the default
 configuration if provided.
 
