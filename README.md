@@ -52,9 +52,13 @@ selectively target specific assemblers and/or instruction sets. Omitting an item
 from the `assemblers` or `instruction_sets` sections is equivalent to setting it
 to `false`. Be default, diagnostics are enabled and the server attempts to invoke
 `gcc` (and then `clang`) to generate them. If the `compiler` config field is specified,
-the server will attempt to use the specified path to generate diagnostics.
+the server will attempt to use the specified path to generate diagnostics. Different
+configurations can be created for different sub-directories within your project as 
+`projects`. Source files not contained within any `project` configs will use the default
+configuration if provided.
 
 ```toml
+# Root-level, default configuration
 version = "0.1"
 
 [assemblers]
@@ -67,14 +71,24 @@ nasm = false
 [instruction_sets]
 x86 = false
 x86_64 = true
-z80 = false
-arm = false
-riscv = false
+# z80 = false # Omitting a field is the same as setting it to false
+# arm = false
+# riscv = false
 
 [opts]
 compiler = "zig" # need "cc" as the first argument in `compile_flags.txt`
 diagnostics = true
 default_diagnostics = true
+
+# Configure the server's treatment of source files in the `arm-project` sub-directory
+[[projects]]
+path = "arm-project"
+
+[projects.assemblers]
+gas = false
+
+[projects.instruction_sets]
+arm = true
 ```
 
 ### [OPTIONAL] Extend functionality via `compile_commands.json`/`compile_flags.txt`

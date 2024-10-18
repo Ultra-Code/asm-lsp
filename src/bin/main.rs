@@ -413,6 +413,10 @@ fn main_loop(
                     info!("Recieved shutdown request");
                     return Ok(());
                 } else if let Ok((id, params)) = cast_req::<HoverRequest>(req.clone()) {
+                    info!(
+                        "Selected config: {:#?}",
+                        config.get_config(&params.text_document_position_params.text_document.uri),
+                    );
                     handle_hover_request(
                         connection,
                         id,

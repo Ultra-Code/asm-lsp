@@ -827,7 +827,7 @@ impl Default for Assemblers {
 }
 
 impl Assemblers {
-    fn empty() -> Self {
+    const fn empty() -> Self {
         Self {
             gas: Some(false),
             go: Some(false),
@@ -861,7 +861,7 @@ impl Default for InstructionSets {
 }
 
 impl InstructionSets {
-    fn empty() -> Self {
+    const fn empty() -> Self {
         Self {
             x86: Some(false),
             x86_64: Some(false),
@@ -871,8 +871,6 @@ impl InstructionSets {
         }
     }
 }
-
-// TODO: Add logic handling empty configs (both `default_config` and `projects` = `None`)
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RootConfig {
@@ -907,7 +905,7 @@ impl RootConfig {
         };
         if let Some(projects) = &self.projects {
             for project in projects {
-                if project.path.starts_with(&request_path) {
+                if request_path.starts_with(&project.path) {
                     return &project.config;
                 }
             }
@@ -1102,7 +1100,7 @@ impl Default for Config {
 
 impl Config {
     #[must_use]
-    pub fn empty() -> Self {
+    pub const fn empty() -> Self {
         Self {
             version: None,
             assemblers: Assemblers::empty(),
@@ -1134,7 +1132,7 @@ impl Default for ConfigOptions {
 }
 
 impl ConfigOptions {
-    fn empty() -> Self {
+    const fn empty() -> Self {
         Self {
             compiler: None,
             diagnostics: Some(false),

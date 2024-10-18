@@ -618,7 +618,6 @@ pub fn get_hover_resp(
         return instr_lookup;
     }
 
-    // TODO: Do the directive lookups next
     // directive lookup
     {
         if config.assemblers.gas.unwrap_or(false) || config.assemblers.masm.unwrap_or(false) {
@@ -1134,7 +1133,8 @@ fn get_include_resp(
     }
 }
 
-/// Filter out duplicate completion suggestions
+/// Filter out duplicate completion suggestions, and those that aren't allowed
+/// by `config`
 fn filtered_comp_list(comps: &[CompletionItem]) -> Vec<CompletionItem> {
     let mut seen = HashSet::new();
 
@@ -1771,8 +1771,47 @@ pub fn get_config(params: &InitializeParams) -> RootConfig {
         (None, None) => RootConfig::default(),
     };
 
-    // TODO: Canonicalize `path`s in `projects`
+    // Validate project paths and enforce default diagnostics settings
+    if let Some(ref mut projects) = config.projects {
+        if let Some(ref path) = get_project_root(params) {
+            let mut project_idx = 0;
+            while project_idx < projects.len() {
+                let mut path = path.clone();
+                path.push(&projects[project_idx].path);
+                let Ok(project_path) = path.canonicalize() else {
+                    error!("Failed to canonicalize project path \"{}\", disabling this project configuration.", path.display());
+                    projects.remove(project_idx);
+                    continue;
+                };
+                if !project_path.is_dir() {
+                    error!("Project path \"{}\" is not a directory, disabling this project configuration.", path.display());
+                    projects.remove(project_idx);
+                    continue;
+                }
+                projects[project_idx].path = project_path;
+                // Want diagnostics enabled by default
+                if projects[project_idx].config.opts.diagnostics.is_none() {
+                    projects[project_idx].config.opts.diagnostics = Some(true);
+                }
 
+                // Want default diagnostics enabled by default
+                if projects[project_idx]
+                    .config
+                    .opts
+                    .default_diagnostics
+                    .is_none()
+                {
+                    projects[project_idx].config.opts.default_diagnostics = Some(true);
+                }
+                project_idx += 1;
+            }
+        } else {
+            error!("Unable to detect project root directory. The projects configuration feature has been disabled.");
+            *projects = Vec::new();
+        }
+    }
+
+    // Enforce default diagnostics settings for default config
     if let Some(ref mut default_cfg) = config.default_config {
         // Want diagnostics enabled by default
         if default_cfg.opts.diagnostics.is_none() {
