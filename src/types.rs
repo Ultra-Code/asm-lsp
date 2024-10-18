@@ -655,7 +655,7 @@ pub type NameToDirectiveMap<'directive> =
 
 pub trait Hoverable: Display + Clone + Copy {}
 pub trait Completable: Display {}
-pub trait ArchOrAssembler {}
+pub trait ArchOrAssembler: Clone + Copy {}
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash, EnumString, AsRefStr, Serialize, Deserialize)]
 pub enum XMMMode {
@@ -896,6 +896,7 @@ impl RootConfig {
     ///
     /// Will panic if `req_uri` cannot be canonicalized
     pub fn get_config<'a>(&'a self, req_uri: &'a Uri) -> &'a Config {
+        #[allow(irrefutable_let_patterns)]
         let Ok(req_path) = PathBuf::from_str(req_uri.path().as_str()) else {
             unreachable!()
         };
@@ -933,67 +934,18 @@ impl RootConfig {
         }
     }
 
-    // TODO: Can probably clean this up with some macro magic
     #[must_use]
     pub fn is_isa_enabled(&self, isa: Arch) -> bool {
         if let Some(ref root) = self.default_config {
-            match isa {
-                Arch::X86 => {
-                    if root.instruction_sets.x86.unwrap_or(false) {
-                        return true;
-                    }
-                }
-                Arch::X86_64 => {
-                    if root.instruction_sets.x86_64.unwrap_or(false) {
-                        return true;
-                    }
-                }
-                Arch::ARM => {
-                    if root.instruction_sets.arm.unwrap_or(false) {
-                        return true;
-                    }
-                }
-                Arch::RISCV => {
-                    if root.instruction_sets.riscv.unwrap_or(false) {
-                        return true;
-                    }
-                }
-                Arch::Z80 => {
-                    if root.instruction_sets.z80.unwrap_or(false) {
-                        return true;
-                    }
-                }
+            if root.is_isa_enabled(isa) {
+                return true;
             }
         }
 
         if let Some(ref projects) = self.projects {
             for project in projects {
-                match isa {
-                    Arch::X86 => {
-                        if project.config.instruction_sets.x86.unwrap_or(false) {
-                            return true;
-                        }
-                    }
-                    Arch::X86_64 => {
-                        if project.config.instruction_sets.x86_64.unwrap_or(false) {
-                            return true;
-                        }
-                    }
-                    Arch::ARM => {
-                        if project.config.instruction_sets.arm.unwrap_or(false) {
-                            return true;
-                        }
-                    }
-                    Arch::RISCV => {
-                        if project.config.instruction_sets.riscv.unwrap_or(false) {
-                            return true;
-                        }
-                    }
-                    Arch::Z80 => {
-                        if project.config.instruction_sets.z80.unwrap_or(false) {
-                            return true;
-                        }
-                    }
+                if project.config.is_isa_enabled(isa) {
+                    return true;
                 }
             }
         }
@@ -1004,63 +956,15 @@ impl RootConfig {
     #[must_use]
     pub fn is_assembler_enabled(&self, assembler: Assembler) -> bool {
         if let Some(ref root) = self.default_config {
-            match assembler {
-                Assembler::Gas => {
-                    if root.assemblers.gas.unwrap_or(false) {
-                        return true;
-                    }
-                }
-                Assembler::Go => {
-                    if root.assemblers.go.unwrap_or(false) {
-                        return true;
-                    }
-                }
-                Assembler::Masm => {
-                    if root.assemblers.masm.unwrap_or(false) {
-                        return true;
-                    }
-                }
-                Assembler::Nasm => {
-                    if root.assemblers.nasm.unwrap_or(false) {
-                        return true;
-                    }
-                }
-                Assembler::Z80 => {
-                    if root.assemblers.z80.unwrap_or(false) {
-                        return true;
-                    }
-                }
+            if root.is_assembler_enabled(assembler) {
+                return true;
             }
         }
 
         if let Some(ref projects) = self.projects {
             for project in projects {
-                match assembler {
-                    Assembler::Gas => {
-                        if project.config.assemblers.gas.unwrap_or(false) {
-                            return true;
-                        }
-                    }
-                    Assembler::Go => {
-                        if project.config.assemblers.go.unwrap_or(false) {
-                            return true;
-                        }
-                    }
-                    Assembler::Masm => {
-                        if project.config.assemblers.masm.unwrap_or(false) {
-                            return true;
-                        }
-                    }
-                    Assembler::Nasm => {
-                        if project.config.assemblers.nasm.unwrap_or(false) {
-                            return true;
-                        }
-                    }
-                    Assembler::Z80 => {
-                        if project.config.assemblers.z80.unwrap_or(false) {
-                            return true;
-                        }
-                    }
+                if project.config.is_assembler_enabled(assembler) {
+                    return true;
                 }
             }
         }
@@ -1108,6 +1012,73 @@ impl Config {
             opts: ConfigOptions::empty(),
             client: None,
         }
+    }
+
+    // TODO: Can probably clean this up with some macro magic
+    #[must_use]
+    pub fn is_isa_enabled(&self, isa: Arch) -> bool {
+        match isa {
+            Arch::X86 => {
+                if self.instruction_sets.x86.unwrap_or(false) {
+                    return true;
+                }
+            }
+            Arch::X86_64 => {
+                if self.instruction_sets.x86_64.unwrap_or(false) {
+                    return true;
+                }
+            }
+            Arch::ARM => {
+                if self.instruction_sets.arm.unwrap_or(false) {
+                    return true;
+                }
+            }
+            Arch::RISCV => {
+                if self.instruction_sets.riscv.unwrap_or(false) {
+                    return true;
+                }
+            }
+            Arch::Z80 => {
+                if self.instruction_sets.z80.unwrap_or(false) {
+                    return true;
+                }
+            }
+        }
+
+        false
+    }
+
+    #[must_use]
+    pub fn is_assembler_enabled(&self, assembler: Assembler) -> bool {
+        match assembler {
+            Assembler::Gas => {
+                if self.assemblers.gas.unwrap_or(false) {
+                    return true;
+                }
+            }
+            Assembler::Go => {
+                if self.assemblers.go.unwrap_or(false) {
+                    return true;
+                }
+            }
+            Assembler::Masm => {
+                if self.assemblers.masm.unwrap_or(false) {
+                    return true;
+                }
+            }
+            Assembler::Nasm => {
+                if self.assemblers.nasm.unwrap_or(false) {
+                    return true;
+                }
+            }
+            Assembler::Z80 => {
+                if self.assemblers.z80.unwrap_or(false) {
+                    return true;
+                }
+            }
+        }
+
+        false
     }
 }
 

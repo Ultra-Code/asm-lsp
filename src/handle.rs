@@ -20,8 +20,8 @@ use tree_sitter::Parser;
 use crate::{
     apply_compile_cmd, get_comp_resp, get_default_compile_cmd, get_document_symbols,
     get_goto_def_resp, get_hover_resp, get_ref_resp, get_sig_help_resp, get_word_from_pos_params,
-    send_empty_resp, text_doc_change_to_ts_edit, Config, NameToInfoMaps, NameToInstructionMap,
-    TreeEntry, TreeStore,
+    send_empty_resp, text_doc_change_to_ts_edit, Arch, Assembler, Config, NameToInfoMaps,
+    NameToInstructionMap, TreeEntry, TreeStore,
 };
 
 /// Handles hover requests
@@ -92,9 +92,9 @@ pub fn handle_completion_request(
     config: &Config,
     text_store: &TextDocuments,
     tree_store: &mut TreeStore,
-    instruction_completion_items: &[CompletionItem],
-    directive_completion_items: &[CompletionItem],
-    register_completion_items: &[CompletionItem],
+    instruction_completion_items: &[(Arch, CompletionItem)],
+    directive_completion_items: &[(Assembler, CompletionItem)],
+    register_completion_items: &[(Arch, CompletionItem)],
 ) -> Result<()> {
     let uri = &params.text_document_position.text_document.uri;
     if let Some(doc) = text_store.get_document(uri) {

@@ -254,9 +254,9 @@ mod tests {
         names_to_instructions: NameToInstructionMap<'a>,
         names_to_registers: NameToRegisterMap<'a>,
         names_to_directives: NameToDirectiveMap<'a>,
-        instr_completion_items: Vec<CompletionItem>,
-        reg_completion_items: Vec<CompletionItem>,
-        directive_completion_items: Vec<CompletionItem>,
+        instr_completion_items: Vec<(Arch, CompletionItem)>,
+        reg_completion_items: Vec<(Arch, CompletionItem)>,
+        directive_completion_items: Vec<(Assembler, CompletionItem)>,
     }
 
     impl GlobalInfo {

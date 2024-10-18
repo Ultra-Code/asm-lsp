@@ -395,9 +395,9 @@ fn main_loop(
     connection: &Connection,
     config: &RootConfig,
     names_to_info: &NameToInfoMaps,
-    instruction_completion_items: &[CompletionItem],
-    directive_completion_items: &[CompletionItem],
-    register_completion_items: &[CompletionItem],
+    instruction_completion_items: &[(Arch, CompletionItem)],
+    directive_completion_items: &[(Assembler, CompletionItem)],
+    register_completion_items: &[(Arch, CompletionItem)],
     compile_cmds: &CompilationDatabase,
     include_dirs: &HashMap<SourceFile, Vec<PathBuf>>,
 ) -> Result<()> {

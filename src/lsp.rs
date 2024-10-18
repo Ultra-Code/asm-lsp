@@ -582,20 +582,23 @@ pub fn text_doc_change_to_ts_edit(
 pub fn get_completes<T: Completable, U: ArchOrAssembler>(
     map: &HashMap<(U, &str), T>,
     kind: Option<CompletionItemKind>,
-) -> Vec<CompletionItem> {
+) -> Vec<(U, CompletionItem)> {
     map.iter()
-        .map(|((_arch_or_asm, name), item_info)| {
+        .map(|((arch_or_asm, name), item_info)| {
             let value = format!("{item_info}");
 
-            CompletionItem {
-                label: (*name).to_string(),
-                kind,
-                documentation: Some(Documentation::MarkupContent(MarkupContent {
-                    kind: MarkupKind::Markdown,
-                    value,
-                })),
-                ..Default::default()
-            }
+            (
+                *arch_or_asm,
+                CompletionItem {
+                    label: (*name).to_string(),
+                    kind,
+                    documentation: Some(Documentation::MarkupContent(MarkupContent {
+                        kind: MarkupKind::Markdown,
+                        value,
+                    })),
+                    ..Default::default()
+                },
+            )
         })
         .collect()
 }
@@ -1133,35 +1136,19 @@ fn get_include_resp(
     }
 }
 
+// TODO: Create two variants, one for arch, one for assembler
+
 /// Filter out duplicate completion suggestions, and those that aren't allowed
 /// by `config`
-fn filtered_comp_list(comps: &[CompletionItem]) -> Vec<CompletionItem> {
+fn filtered_comp_list_arch(
+    comps: &[(Arch, CompletionItem)],
+    config: &Config,
+) -> Vec<CompletionItem> {
     let mut seen = HashSet::new();
-
     comps
         .iter()
-        .filter(|comp_item| {
-            if seen.contains(&comp_item.label) {
-                false
-            } else {
-                seen.insert(&comp_item.label);
-                true
-            }
-        })
-        .cloned()
-        .collect()
-}
-
-/// 'prefix' allows the caller to optionally require completion items to start with
-/// a given character
-/// This is kept separate from `filtered_comp_list` for performance reasons
-fn filtered_comp_list_prefix(comps: &[CompletionItem], prefix: char) -> Vec<CompletionItem> {
-    let mut seen = HashSet::new();
-
-    comps
-        .iter()
-        .filter(|comp_item| {
-            if !comp_item.label.starts_with(prefix) {
+        .filter(|(arch, comp_item)| {
+            if !config.is_isa_enabled(*arch) {
                 return false;
             }
             if seen.contains(&comp_item.label) {
@@ -1171,6 +1158,40 @@ fn filtered_comp_list_prefix(comps: &[CompletionItem], prefix: char) -> Vec<Comp
                 true
             }
         })
+        .map(|(_, comp_item)| comp_item)
+        .cloned()
+        .collect()
+}
+
+/// Filter out duplicate completion suggestions, and those that aren't allowed
+/// by `config`
+/// 'prefix' allows the caller to optionally require completion items to start with
+/// a given character
+fn filtered_comp_list_assem(
+    comps: &[(Assembler, CompletionItem)],
+    config: &Config,
+    prefix: Option<char>,
+) -> Vec<CompletionItem> {
+    let mut seen = HashSet::new();
+    comps
+        .iter()
+        .filter(|(assem, comp_item)| {
+            if !config.is_assembler_enabled(*assem) {
+                return false;
+            }
+            if let Some(c) = prefix {
+                if !comp_item.label.starts_with(c) {
+                    return false;
+                }
+            }
+            if seen.contains(&comp_item.label) {
+                false
+            } else {
+                seen.insert(&comp_item.label);
+                true
+            }
+        })
+        .map(|(_, comp_item)| comp_item)
         .cloned()
         .collect()
 }
@@ -1190,9 +1211,9 @@ pub fn get_comp_resp(
     tree_entry: &mut TreeEntry,
     params: &CompletionParams,
     config: &Config,
-    instr_comps: &[CompletionItem],
-    dir_comps: &[CompletionItem],
-    reg_comps: &[CompletionItem],
+    instr_comps: &[(Arch, CompletionItem)],
+    dir_comps: &[(Assembler, CompletionItem)],
+    reg_comps: &[(Arch, CompletionItem)],
 ) -> Option<CompletionList> {
     let cursor_line = params.text_document_position.position.line as usize;
     let cursor_char = params.text_document_position.position.character as usize;
@@ -1210,10 +1231,10 @@ pub fn get_comp_resp(
                     if config.instruction_sets.x86.unwrap_or(false)
                         || config.instruction_sets.x86_64.unwrap_or(false)
                     {
-                        items.append(&mut filtered_comp_list(reg_comps));
+                        items.append(&mut filtered_comp_list_arch(reg_comps, config));
                     }
                     if config.assemblers.nasm.unwrap_or(false) {
-                        items.append(&mut filtered_comp_list_prefix(dir_comps, '%'));
+                        items.append(&mut filtered_comp_list_assem(dir_comps, config, Some('%')));
                     }
 
                     if !items.is_empty() {
@@ -1231,7 +1252,7 @@ pub fn get_comp_resp(
                     {
                         return Some(CompletionList {
                             is_incomplete: true,
-                            items: filtered_comp_list_prefix(dir_comps, '.'),
+                            items: filtered_comp_list_assem(dir_comps, config, Some('.')),
                         });
                     }
                 }
@@ -1272,7 +1293,7 @@ pub fn get_comp_resp(
                 let arg_end = cap.node.range().end_point;
                 if cursor_matches!(cursor_line, cursor_char, arg_start, arg_end) {
                     // TODO: Pass in config here to filter
-                    let items = filtered_comp_list(dir_comps);
+                    let items = filtered_comp_list_assem(dir_comps, config, None);
                     return Some(CompletionList {
                         is_incomplete: true,
                         items,
@@ -1354,12 +1375,14 @@ pub fn get_comp_resp(
                     // an instruction is always capture #0 for this query, any capture
                     // number after must be a register or label
                     let is_instr = cap_num == 0;
-                    let mut items =
-                        filtered_comp_list(if is_instr { instr_comps } else { reg_comps });
+                    let mut items = filtered_comp_list_arch(
+                        if is_instr { instr_comps } else { reg_comps },
+                        config,
+                    );
                     if is_instr {
                         // Sometimes tree-sitter-asm parses a directive as an instruction, so we'll
                         // suggest both in this case
-                        items.append(&mut filtered_comp_list(dir_comps));
+                        items.append(&mut filtered_comp_list_assem(dir_comps, config, None));
                     } else {
                         items.append(
                             &mut labels
