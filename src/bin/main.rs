@@ -386,7 +386,7 @@ pub fn main() -> Result<()> {
     // (and thus allowing the process to exit) is fine
     // _io_threads.join()?;
 
-    info!("Shutting down asm_lsp");
+    info!("Shutting down asm-lsp");
     Ok(())
 }
 
@@ -404,7 +404,7 @@ fn main_loop(
     let mut text_store = TextDocuments::new();
     let mut tree_store = TreeStore::new();
 
-    info!("Starting asm_lsp loop...");
+    info!("Starting asm-lsp loop...");
     for msg in &connection.receiver {
         let start = std::time::Instant::now();
         match msg {
@@ -413,10 +413,6 @@ fn main_loop(
                     info!("Recieved shutdown request");
                     return Ok(());
                 } else if let Ok((id, params)) = cast_req::<HoverRequest>(req.clone()) {
-                    info!(
-                        "Selected config: {:#?}",
-                        config.get_config(&params.text_document_position_params.text_document.uri),
-                    );
                     handle_hover_request(
                         connection,
                         id,
