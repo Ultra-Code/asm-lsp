@@ -585,7 +585,7 @@ pub fn get_completes<T: Completable, U: ArchOrAssembler>(
 ) -> Vec<(U, CompletionItem)> {
     map.iter()
         .map(|((arch_or_asm, name), item_info)| {
-            let value = format!("{item_info}");
+            let value = item_info.to_string();
 
             (
                 *arch_or_asm,
@@ -1136,8 +1136,6 @@ fn get_include_resp(
     }
 }
 
-// TODO: Create two variants, one for arch, one for assembler
-
 /// Filter out duplicate completion suggestions, and those that aren't allowed
 /// by `config`
 fn filtered_comp_list_arch(
@@ -1292,7 +1290,6 @@ pub fn get_comp_resp(
                 let arg_start = cap.node.range().start_point;
                 let arg_end = cap.node.range().end_point;
                 if cursor_matches!(cursor_line, cursor_char, arg_start, arg_end) {
-                    // TODO: Pass in config here to filter
                     let items = filtered_comp_list_assem(dir_comps, config, None);
                     return Some(CompletionList {
                         is_incomplete: true,
@@ -1311,7 +1308,6 @@ pub fn get_comp_resp(
         static QUERY_LABEL: Lazy<tree_sitter::Query> = Lazy::new(|| {
             tree_sitter::Query::new(&tree_sitter_asm::language(), "(label (ident) @label)").unwrap()
         });
-        // TODO: Filter shit here too
         let captures = doc_cursor.captures(&QUERY_LABEL, tree.root_node(), curr_doc);
         let mut labels = HashSet::new();
         for caps in captures.map(|c| c.0) {
@@ -1371,7 +1367,6 @@ pub fn get_comp_resp(
                 let arg_start = cap.node.range().start_point;
                 let arg_end = cap.node.range().end_point;
                 if cursor_matches!(cursor_line, cursor_char, arg_start, arg_end) {
-                    // TODO: More filtering here...
                     // an instruction is always capture #0 for this query, any capture
                     // number after must be a register or label
                     let is_instr = cap_num == 0;
@@ -1832,6 +1827,16 @@ pub fn get_config(params: &InitializeParams) -> RootConfig {
             error!("Unable to detect project root directory. The projects configuration feature has been disabled.");
             *projects = Vec::new();
         }
+
+        // sort project configurations by length of their canonicalized `path`s,
+        // so when we select a project config at request time, we find configs
+        // controlling a sub-directory of another config first
+        projects.sort_unstable_by(|c1, c2| {
+            c2.path
+                .to_string_lossy()
+                .len()
+                .cmp(&c1.path.to_string_lossy().len())
+        });
     }
 
     // Enforce default diagnostics settings for default config

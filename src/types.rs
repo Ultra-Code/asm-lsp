@@ -902,7 +902,7 @@ impl RootConfig {
         };
         let request_path = match req_path.canonicalize() {
             Ok(path) => path,
-            Err(e) => panic!("Invalid request path: {} - {e}", req_path.display()),
+            Err(e) => panic!("Invalid request path: \"{}\" - {e}", req_path.display()),
         };
         if let Some(projects) = &self.projects {
             for project in projects {
@@ -916,7 +916,7 @@ impl RootConfig {
         }
 
         panic!(
-            "Invalid configuration for {} -- Must contain a per-project configuration or default",
+            "Invalid configuration for \"{}\" -- Must contain a per-project configuration or default",
             request_path.display()
         );
     }
