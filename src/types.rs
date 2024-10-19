@@ -876,6 +876,7 @@ impl InstructionSets {
 pub struct RootConfig {
     #[serde(flatten)]
     pub default_config: Option<Config>,
+    #[serde(rename = "project")]
     pub projects: Option<Vec<ProjectConfig>>,
 }
 

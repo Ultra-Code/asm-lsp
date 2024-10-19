@@ -54,7 +54,7 @@ to `false`. Be default, diagnostics are enabled and the server attempts to invok
 `gcc` (and then `clang`) to generate them. If the `compiler` config field is specified,
 the server will attempt to use the specified path to generate diagnostics. Different
 configurations can be created for different sub-directories within your project as
-`projects`. Source files not contained within any `project` configs will use the default
+`project`s. Source files not contained within any `project` configs will use the default
 configuration if provided.
 
 ```toml
@@ -81,13 +81,13 @@ diagnostics = true
 default_diagnostics = true
 
 # Configure the server's treatment of source files in the `arm-project` sub-directory
-[[projects]]
+[[project]]
 path = "arm-project"
 
-[projects.assemblers]
-gas = false
+[project.assemblers]
+gas = true
 
-[projects.instruction_sets]
+[project.instruction_sets]
 arm = true
 ```
 
