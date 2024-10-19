@@ -5,6 +5,7 @@ use std::{
     str::FromStr,
 };
 
+use log::info;
 use lsp_types::Uri;
 use serde::{Deserialize, Serialize};
 use strum_macros::{AsRefStr, Display, EnumString};
@@ -907,12 +908,19 @@ impl RootConfig {
         };
         if let Some(projects) = &self.projects {
             for project in projects {
-                if request_path.starts_with(&project.path) {
+                if (project.path.is_dir() && request_path.starts_with(&project.path))
+                    || (project.path.is_file() && request_path.eq(&project.path))
+                {
+                    info!(
+                        "Selected project config with path \"{}\"",
+                        project.path.display()
+                    );
                     return &project.config;
                 }
             }
         }
         if let Some(root) = &self.default_config {
+            info!("Selected root config");
             return root;
         }
 

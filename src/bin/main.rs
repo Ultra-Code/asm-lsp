@@ -10,9 +10,10 @@ use asm_lsp::handle::{
     handle_references_request, handle_signature_help_request,
 };
 use asm_lsp::{
-    get_compile_cmds, get_completes, get_config, get_include_dirs, populate_name_to_directive_map,
-    populate_name_to_instruction_map, populate_name_to_register_map, Arch, Assembler, Instruction,
-    NameToInfoMaps, RootConfig, TreeStore,
+    get_compile_cmds, get_completes, get_include_dirs, get_root_config,
+    populate_name_to_directive_map, populate_name_to_instruction_map,
+    populate_name_to_register_map, Arch, Assembler, Instruction, NameToInfoMaps, RootConfig,
+    TreeStore,
 };
 
 use compile_commands::{CompilationDatabase, SourceFile};
@@ -114,7 +115,7 @@ pub fn main() -> Result<()> {
 
     let params: InitializeParams = serde_json::from_value(initialization_params.clone()).unwrap();
     info!("Client initialization params: {:?}", params);
-    let mut config = get_config(&params);
+    let mut config = get_root_config(&params);
     info!("Server Configuration: {:?}", config);
     if let Some(ref client_info) = params.client_info {
         if client_info.name.eq("helix") {

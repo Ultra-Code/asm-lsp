@@ -1,3 +1,4 @@
+use std::cmp::Ordering;
 use std::collections::{HashMap, HashSet};
 use std::convert::TryFrom;
 use std::fs::{create_dir_all, File};
@@ -1782,7 +1783,7 @@ pub fn get_ref_resp(
 /// Searches for global config in ~/.config/asm-lsp, then the project's directory
 /// Project specific configs will override global configs
 #[must_use]
-pub fn get_config(params: &InitializeParams) -> RootConfig {
+pub fn get_root_config(params: &InitializeParams) -> RootConfig {
     let mut config = match (get_global_config(), get_project_config(params)) {
         (_, Some(proj_cfg)) => proj_cfg,
         (Some(global_cfg), None) => global_cfg,
@@ -1801,11 +1802,6 @@ pub fn get_config(params: &InitializeParams) -> RootConfig {
                     projects.remove(project_idx);
                     continue;
                 };
-                if !project_path.is_dir() {
-                    error!("Project path \"{}\" is not a directory, disabling this project configuration.", path.display());
-                    projects.remove(project_idx);
-                    continue;
-                }
                 projects[project_idx].path = project_path;
                 // Want diagnostics enabled by default
                 if projects[project_idx].config.opts.diagnostics.is_none() {
@@ -1828,14 +1824,31 @@ pub fn get_config(params: &InitializeParams) -> RootConfig {
             *projects = Vec::new();
         }
 
-        // sort project configurations by length of their canonicalized `path`s,
-        // so when we select a project config at request time, we find configs
-        // controlling a sub-directory of another config first
+        // sort project configurations so when we select a project config at request
+        // time, we find configs controlling specific files first, and then configs
+        // for a sub-directory of another config before the parent config
         projects.sort_unstable_by(|c1, c2| {
-            c2.path
-                .to_string_lossy()
-                .len()
-                .cmp(&c1.path.to_string_lossy().len())
+            // - If both are files, we don't care
+            // - If one is file and other is directory, file goes first
+            // - Else (just assuming both are directories for the default case),
+            //   go by the length metric (parent directories get placed *after*
+            //   their children)
+            let c1_dir = c1.path.is_dir();
+            let c1_file = c1.path.is_file();
+            let c2_dir = c2.path.is_dir();
+            let c2_file = c2.path.is_file();
+            if c1_file && c2_file {
+                Ordering::Equal
+            } else if c1_dir && c2_file {
+                Ordering::Greater
+            } else if c1_file && c2_dir {
+                Ordering::Less
+            } else {
+                c2.path
+                    .to_string_lossy()
+                    .len()
+                    .cmp(&c1.path.to_string_lossy().len())
+            }
         });
     }
 
