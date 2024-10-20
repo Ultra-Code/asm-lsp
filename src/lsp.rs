@@ -1,3 +1,4 @@
+use std::borrow::ToOwned;
 use std::cmp::Ordering;
 use std::collections::{HashMap, HashSet};
 use std::convert::TryFrom;
@@ -6,6 +7,7 @@ use std::io::BufRead;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::str::FromStr;
+use std::string::ToString;
 
 use anyhow::{anyhow, Result};
 use compile_commands::{CompilationDatabase, CompileArgs, CompileCommand, SourceFile};
@@ -338,6 +340,59 @@ fn get_compilation_db_files(path: &Path) -> Option<CompilationDatabase> {
     let cmp_flag_path = path.join("compile_flags.txt");
     if let Ok(conts) = std::fs::read_to_string(cmp_flag_path) {
         return Some(compile_commands::from_compile_flags_txt(path, &conts));
+    }
+
+    None
+}
+
+/// Attempts to find the user-provided compile command for `req_uri`, as specified within a
+/// `project` field in `.asm-lsp.toml`
+///
+/// NOTE: The `directory` field is intentionally left empty. If this function is being used
+/// in a new place, please reconsider this assumption
+///
+/// # Panics
+///
+/// Will panic if `req_uri` cannot be canonicalized
+pub fn get_comp_cmd_for_path(config: &RootConfig, req_uri: &Uri) -> Option<CompileCommand> {
+    #[allow(irrefutable_let_patterns)]
+    let Ok(req_path) = PathBuf::from_str(req_uri.path().as_str()) else {
+        unreachable!()
+    };
+    let request_path = match req_path.canonicalize() {
+        Ok(path) => path,
+        Err(e) => panic!("Invalid request path: \"{}\" - {e}", req_path.display()),
+    };
+    // if the path is within a project configuration and that project specifies
+    // a compiler invocation, use it
+    if let Some(project) = config.get_project(&request_path) {
+        if let Some(ref cmd) = project.compile_cmd {
+            info!("Used config compile command!");
+            let args = {
+                let mut user_cmds: Vec<String> =
+                    cmd.split_whitespace().map(ToString::to_string).collect();
+                if let Some(path) = request_path.to_str() {
+                    user_cmds.push(path.to_string()); // append the request path as the last
+                                                      // compiler argument
+                }
+                user_cmds
+            };
+            // let directory = if project.path.is_dir() {
+            //     project.path.clone()
+            // } else {
+            //     project
+            //         .path
+            //         .parent()
+            //         .map_or(PathBuf::new(), ToOwned::to_owned)
+            // };
+            return Some(CompileCommand {
+                file: SourceFile::File(request_path.clone()),
+                directory: PathBuf::new(),
+                arguments: Some(CompileArgs::Arguments(args)),
+                command: None,
+                output: None,
+            });
+        }
     }
 
     None

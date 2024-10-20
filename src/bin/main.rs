@@ -10,7 +10,7 @@ use asm_lsp::handle::{
     handle_references_request, handle_signature_help_request,
 };
 use asm_lsp::{
-    get_compile_cmds, get_completes, get_include_dirs, get_root_config,
+    get_comp_cmd_for_path, get_compile_cmds, get_completes, get_include_dirs, get_root_config,
     populate_name_to_directive_map, populate_name_to_instruction_map,
     populate_name_to_register_map, Arch, Assembler, Instruction, NameToInfoMaps, RootConfig,
     TreeStore,
@@ -500,13 +500,23 @@ fn main_loop(
                 } else if let Ok((_id, params)) = cast_req::<DocumentDiagnosticRequest>(req.clone())
                 {
                     let project_config = config.get_config(&params.text_document.uri);
+                    let cmp_cmds = if let Some(cmd) =
+                        get_comp_cmd_for_path(config, &params.text_document.uri)
+                    {
+                        // If the user provided a compiler invocation command in their config
+                        // for the project config covering this file, use it
+                        &vec![cmd]
+                    } else {
+                        // Otherwise pass the default compile commands object
+                        compile_cmds
+                    };
                     // Ok to unwrap, this should never be `None`
                     if project_config.opts.diagnostics.unwrap() {
                         handle_diagnostics(
                             connection,
                             &params.text_document.uri,
                             project_config,
-                            compile_cmds,
+                            cmp_cmds,
                         )?;
                         info!(
                             "Diagnostics request serviced in {}ms",
@@ -552,11 +562,21 @@ fn main_loop(
                     let project_config = config.get_config(&params.text_document.uri);
                     // Ok to unwrap, this should never be `None`
                     if project_config.opts.diagnostics.unwrap() {
+                        let cmp_cmds = if let Some(cmd) =
+                            get_comp_cmd_for_path(config, &params.text_document.uri)
+                        {
+                            // If the user provided a compiler invocation command in their config
+                            // for the project config covering this file, use it
+                            &vec![cmd]
+                        } else {
+                            // Otherwise pass the default compile commands object
+                            compile_cmds
+                        };
                         handle_diagnostics(
                             connection,
                             &params.text_document.uri,
                             project_config,
-                            compile_cmds,
+                            cmp_cmds,
                         )?;
                         info!(
                             "Published diagnostics on save in {}ms",

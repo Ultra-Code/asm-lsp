@@ -891,7 +891,28 @@ impl Default for RootConfig {
 }
 
 impl RootConfig {
-    /// Returns the project-specific associated with `uri`, or the default if no
+    /// Returns the `Project` associated with `uri`
+    ///
+    /// # Panics
+    ///
+    /// Will panic if `req_uri` cannot be canonicalized
+    #[must_use]
+    pub fn get_project<'a>(&'a self, request_path: &PathBuf) -> Option<&'a ProjectConfig> {
+        #[allow(irrefutable_let_patterns)]
+        if let Some(projects) = &self.projects {
+            for project in projects {
+                if (project.path.is_dir() && request_path.starts_with(&project.path))
+                    || (project.path.is_file() && request_path.eq(&project.path))
+                {
+                    return Some(project);
+                }
+            }
+        }
+
+        None
+    }
+
+    /// Returns the project-specific `Config` associated with `uri`, or the default if no
     /// matching configuration is found
     ///
     /// # Panics
@@ -906,18 +927,12 @@ impl RootConfig {
             Ok(path) => path,
             Err(e) => panic!("Invalid request path: \"{}\" - {e}", req_path.display()),
         };
-        if let Some(projects) = &self.projects {
-            for project in projects {
-                if (project.path.is_dir() && request_path.starts_with(&project.path))
-                    || (project.path.is_file() && request_path.eq(&project.path))
-                {
-                    info!(
-                        "Selected project config with path \"{}\"",
-                        project.path.display()
-                    );
-                    return &project.config;
-                }
-            }
+        if let Some(project) = self.get_project(&request_path) {
+            info!(
+                "Selected project config with path \"{}\"",
+                project.path.display()
+            );
+            return &project.config;
         }
         if let Some(root) = &self.default_config {
             info!("Selected root config");
@@ -926,7 +941,7 @@ impl RootConfig {
 
         panic!(
             "Invalid configuration for \"{}\" -- Must contain a per-project configuration or default",
-            request_path.display()
+            req_uri.path()
         );
     }
 
@@ -984,7 +999,12 @@ impl RootConfig {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ProjectConfig {
+    // path to a directory or source file on which this config applies
+    // can be relative to the server's root directory, or absolute
     pub path: PathBuf,
+    // Means to override compilation behavior for this project. The input file
+    // should not be included
+    pub compile_cmd: Option<String>,
     #[serde(flatten)]
     pub config: Config,
 }
