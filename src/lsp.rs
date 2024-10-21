@@ -1649,6 +1649,19 @@ pub fn get_root_config(params: &InitializeParams) -> RootConfig {
                     .cmp(&c1.path.to_string_lossy().len())
             }
         });
+
+        // Check if the user specified multiple configs pointing to the same
+        // file or directory
+        let mut path_check = HashSet::new();
+        for project in projects {
+            if path_check.contains(&project.path) {
+                error!(
+                    "Multiple project configurations for \"{}\".",
+                    project.path.display()
+                );
+            }
+            path_check.insert(&project.path);
+        }
     }
 
     // Enforce default diagnostics settings for default config
