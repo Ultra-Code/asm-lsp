@@ -677,17 +677,23 @@ pub enum MMXMode {
 pub enum Arch {
     #[default]
     #[strum(serialize = "x86")]
+    #[serde(rename = "x86")]
     X86,
     #[strum(serialize = "x86-64")]
+    #[serde(rename = "x86-64")]
     X86_64,
     /// enables both `Arch::X86` and `Arch::X86_64`
     #[strum(serialize = "x86/x86-64")]
+    #[serde(rename = "x86/x86-64")]
     X86_AND_X86_64,
     #[strum(serialize = "arm")]
+    #[serde(rename = "arm")]
     ARM,
     #[strum(serialize = "riscv")]
+    #[serde(rename = "riscv")]
     RISCV,
     #[strum(serialize = "z80")]
+    #[serde(rename = "z80")]
     Z80,
     #[serde(skip)]
     None,
@@ -830,7 +836,7 @@ impl std::fmt::Display for RegisterBitInfo {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RootConfig {
-    #[serde(flatten)]
+    // #[serde(flatten)]
     pub default_config: Option<Config>,
     #[serde(rename = "project")]
     pub projects: Option<Vec<ProjectConfig>>,
@@ -967,8 +973,8 @@ pub struct ProjectConfig {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Config {
     pub version: Option<String>,
-    pub assembler: Assembler,  // TODO: Change to `Assembler`
-    pub instruction_set: Arch, // TODO: Change to `Arch`
+    pub assembler: Assembler,
+    pub instruction_set: Arch,
     pub opts: ConfigOptions,
     #[serde(skip)]
     pub client: Option<LspClient>,
