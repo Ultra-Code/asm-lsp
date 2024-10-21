@@ -670,6 +670,7 @@ pub enum MMXMode {
     MMX,
 }
 
+#[allow(non_camel_case_types)]
 #[derive(
     Debug, Default, Hash, PartialEq, Eq, Clone, Copy, EnumString, AsRefStr, Serialize, Deserialize,
 )]
@@ -679,12 +680,17 @@ pub enum Arch {
     X86,
     #[strum(serialize = "x86-64")]
     X86_64,
+    /// enables both `Arch::X86` and `Arch::X86_64`
+    #[strum(serialize = "x86/x86-64")]
+    X86_AND_X86_64,
     #[strum(serialize = "arm")]
     ARM,
     #[strum(serialize = "riscv")]
     RISCV,
     #[strum(serialize = "z80")]
     Z80,
+    #[serde(skip)]
+    None,
 }
 
 impl ArchOrAssembler for Arch {}
@@ -694,18 +700,32 @@ impl std::fmt::Display for Arch {
         match self {
             Self::X86 => write!(f, "x86")?,
             Self::X86_64 => write!(f, "x86-64")?,
+            Self::X86_AND_X86_64 => write!(f, "x86/x86-64")?,
             Self::ARM => write!(f, "arm")?,
             Self::Z80 => write!(f, "z80")?,
             Self::RISCV => write!(f, "riscv")?,
+            Self::None => write!(f, "None")?,
         }
         Ok(())
     }
 }
 
 #[derive(
-    Debug, Display, Hash, PartialEq, Eq, Clone, Copy, EnumString, AsRefStr, Serialize, Deserialize,
+    Debug,
+    Display,
+    Default,
+    Hash,
+    PartialEq,
+    Eq,
+    Clone,
+    Copy,
+    EnumString,
+    AsRefStr,
+    Serialize,
+    Deserialize,
 )]
 pub enum Assembler {
+    #[default]
     #[strum(serialize = "gas")]
     Gas,
     #[strum(serialize = "go")]
@@ -716,6 +736,8 @@ pub enum Assembler {
     Nasm,
     #[strum(serialize = "z80")]
     Z80,
+    #[serde(skip)]
+    None,
 }
 
 impl ArchOrAssembler for Assembler {}
@@ -803,73 +825,6 @@ impl std::fmt::Display for RegisterBitInfo {
 
         write!(f, "{s}")?;
         Ok(())
-    }
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct Assemblers {
-    pub gas: Option<bool>,
-    pub go: Option<bool>,
-    pub masm: Option<bool>,
-    pub nasm: Option<bool>,
-    pub z80: Option<bool>,
-}
-
-impl Default for Assemblers {
-    fn default() -> Self {
-        Self {
-            gas: Some(true),
-            go: Some(true),
-            masm: Some(false),
-            nasm: Some(false),
-            z80: Some(false),
-        }
-    }
-}
-
-impl Assemblers {
-    const fn empty() -> Self {
-        Self {
-            gas: Some(false),
-            go: Some(false),
-            masm: Some(false),
-            nasm: Some(false),
-            z80: Some(false),
-        }
-    }
-}
-
-#[allow(non_snake_case)]
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct InstructionSets {
-    pub x86: Option<bool>,
-    pub x86_64: Option<bool>,
-    pub z80: Option<bool>,
-    pub arm: Option<bool>,
-    pub riscv: Option<bool>,
-}
-
-impl Default for InstructionSets {
-    fn default() -> Self {
-        Self {
-            x86: Some(true),
-            x86_64: Some(true),
-            z80: Some(false),
-            arm: Some(false),
-            riscv: Some(false),
-        }
-    }
-}
-
-impl InstructionSets {
-    const fn empty() -> Self {
-        Self {
-            x86: Some(false),
-            x86_64: Some(false),
-            z80: Some(false),
-            arm: Some(false),
-            riscv: Some(false),
-        }
     }
 }
 
@@ -1012,8 +967,8 @@ pub struct ProjectConfig {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Config {
     pub version: Option<String>,
-    pub assemblers: Assemblers,
-    pub instruction_sets: InstructionSets,
+    pub assembler: Assembler,  // TODO: Change to `Assembler`
+    pub instruction_set: Arch, // TODO: Change to `Arch`
     pub opts: ConfigOptions,
     #[serde(skip)]
     pub client: Option<LspClient>,
@@ -1023,8 +978,8 @@ impl Default for Config {
     fn default() -> Self {
         Self {
             version: Some(String::from("0.1")),
-            assemblers: Assemblers::default(),
-            instruction_sets: InstructionSets::default(),
+            assembler: Assembler::default(),
+            instruction_set: Arch::default(),
             opts: ConfigOptions::default(),
             client: None,
         }
@@ -1036,78 +991,27 @@ impl Config {
     pub const fn empty() -> Self {
         Self {
             version: None,
-            assemblers: Assemblers::empty(),
-            instruction_sets: InstructionSets::empty(),
+            assembler: Assembler::None,
+            instruction_set: Arch::None,
             opts: ConfigOptions::empty(),
             client: None,
         }
     }
 
-    // TODO: Can probably clean this up with some macro magic
     #[must_use]
     pub fn is_isa_enabled(&self, isa: Arch) -> bool {
-        match isa {
-            Arch::X86 => {
-                if self.instruction_sets.x86.unwrap_or(false) {
-                    return true;
-                }
+        match self.instruction_set {
+            Arch::X86_AND_X86_64 => {
+                isa == Arch::X86 || isa == Arch::X86_64 || isa == Arch::X86_AND_X86_64
             }
-            Arch::X86_64 => {
-                if self.instruction_sets.x86_64.unwrap_or(false) {
-                    return true;
-                }
-            }
-            Arch::ARM => {
-                if self.instruction_sets.arm.unwrap_or(false) {
-                    return true;
-                }
-            }
-            Arch::RISCV => {
-                if self.instruction_sets.riscv.unwrap_or(false) {
-                    return true;
-                }
-            }
-            Arch::Z80 => {
-                if self.instruction_sets.z80.unwrap_or(false) {
-                    return true;
-                }
-            }
+            // TODO: Same treatment as above for ARM32/ARM64
+            arch => isa == arch,
         }
-
-        false
     }
 
     #[must_use]
     pub fn is_assembler_enabled(&self, assembler: Assembler) -> bool {
-        match assembler {
-            Assembler::Gas => {
-                if self.assemblers.gas.unwrap_or(false) {
-                    return true;
-                }
-            }
-            Assembler::Go => {
-                if self.assemblers.go.unwrap_or(false) {
-                    return true;
-                }
-            }
-            Assembler::Masm => {
-                if self.assemblers.masm.unwrap_or(false) {
-                    return true;
-                }
-            }
-            Assembler::Nasm => {
-                if self.assemblers.nasm.unwrap_or(false) {
-                    return true;
-                }
-            }
-            Assembler::Z80 => {
-                if self.assemblers.z80.unwrap_or(false) {
-                    return true;
-                }
-            }
-        }
-
-        false
+        self.assembler == assembler
     }
 }
 

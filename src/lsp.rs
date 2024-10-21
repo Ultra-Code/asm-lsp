@@ -679,13 +679,15 @@ pub fn get_hover_resp(
 
     // directive lookup
     {
-        if config.assemblers.gas.unwrap_or(false) || config.assemblers.masm.unwrap_or(false) {
+        if config.is_assembler_enabled(Assembler::Gas)
+            || config.is_assembler_enabled(Assembler::Masm)
+        {
             // all gas directives have a '.' prefix, some masm directives do
             let directive_lookup = get_directive_hover_resp(word, directive_map, config);
             if directive_lookup.is_some() {
                 return directive_lookup;
             }
-        } else if config.assemblers.nasm.unwrap_or(false) {
+        } else if config.is_assembler_enabled(Assembler::Nasm) {
             // most nasm directives have no prefix, 2 have a '.' prefix
             let directive_lookup = get_directive_hover_resp(word, directive_map, config);
             if directive_lookup.is_some() {
@@ -732,149 +734,18 @@ pub fn get_hover_resp(
     None
 }
 
-#[derive(Debug, Clone, Copy)]
-struct InstructionResp<'a> {
-    pub x86: Option<&'a Instruction>,
-    pub x86_64: Option<&'a Instruction>,
-    pub z80: Option<&'a Instruction>,
-    pub arm: Option<&'a Instruction>,
-    pub riscv: Option<&'a Instruction>,
-}
-
-impl InstructionResp<'_> {
-    const fn has_resp(&self) -> bool {
-        self.x86.is_some()
-            || self.x86_64.is_some()
-            || self.z80.is_some()
-            || self.arm.is_some()
-            || self.riscv.is_some()
-    }
-}
-
-#[derive(Debug, Clone, Copy)]
-struct RegisterResp<'a> {
-    pub x86: Option<&'a Register>,
-    pub x86_64: Option<&'a Register>,
-    pub z80: Option<&'a Register>,
-    pub arm: Option<&'a Register>,
-    pub riscv: Option<&'a Register>,
-}
-
-impl RegisterResp<'_> {
-    const fn has_resp(&self) -> bool {
-        self.x86.is_some()
-            || self.x86_64.is_some()
-            || self.z80.is_some()
-            || self.arm.is_some()
-            || self.riscv.is_some()
-    }
-}
-
-impl std::fmt::Display for RegisterResp<'_> {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let mut has_entry = false;
-        if let Some(resp) = self.x86 {
-            write!(f, "{}{}", if has_entry { "\n\n" } else { "" }, resp)?;
-            has_entry = true;
-        }
-        if let Some(resp) = self.x86_64 {
-            write!(f, "{}{}", if has_entry { "\n\n" } else { "" }, resp)?;
-            has_entry = true;
-        }
-        if let Some(resp) = self.z80 {
-            write!(f, "{}{}", if has_entry { "\n\n" } else { "" }, resp)?;
-            has_entry = true;
-        }
-        if let Some(resp) = self.arm {
-            write!(f, "{}{}", if has_entry { "\n\n" } else { "" }, resp)?;
-            has_entry = true;
-        }
-        if let Some(resp) = self.riscv {
-            write!(f, "{}{}", if has_entry { "\n\n" } else { "" }, resp)?;
-        }
-        Ok(())
-    }
-}
-
-#[derive(Debug, Clone, Copy)]
-struct DirectiveResp<'a> {
-    pub gas: Option<&'a Directive>,
-    pub go: Option<&'a Directive>,
-    pub z80: Option<&'a Directive>,
-    pub masm: Option<&'a Directive>,
-    pub nasm: Option<&'a Directive>,
-}
-
-impl DirectiveResp<'_> {
-    const fn has_resp(&self) -> bool {
-        self.gas.is_some()
-            || self.go.is_some()
-            || self.z80.is_some()
-            || self.masm.is_some()
-            || self.nasm.is_some()
-    }
-}
-
-impl std::fmt::Display for DirectiveResp<'_> {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let mut has_entry = false;
-        if let Some(resp) = self.gas {
-            write!(f, "{}{}", if has_entry { "\n\n" } else { "" }, resp)?;
-            has_entry = true;
-        }
-        if let Some(resp) = self.go {
-            write!(f, "{}{}", if has_entry { "\n\n" } else { "" }, resp)?;
-            has_entry = true;
-        }
-        if let Some(resp) = self.z80 {
-            write!(f, "{}{}", if has_entry { "\n\n" } else { "" }, resp)?;
-            has_entry = true;
-        }
-        if let Some(resp) = self.masm {
-            write!(f, "{}{}", if has_entry { "\n\n" } else { "" }, resp)?;
-            has_entry = true;
-        }
-        if let Some(resp) = self.nasm {
-            write!(f, "{}{}", if has_entry { "\n\n" } else { "" }, resp)?;
-        }
-        Ok(())
-    }
-}
-
 fn search_for_instr_by_arch<'a>(
     word: &'a str,
     instr_map: &'a HashMap<(Arch, &str), &Instruction>,
     config: &Config,
-) -> InstructionResp<'a> {
-    let lookup = |instr_map: &'a HashMap<(Arch, &'a str), &Instruction>,
-                  arch: Arch,
-                  word: &'a str,
-                  check: bool|
-     -> Option<&'a Instruction> {
-        if check {
-            instr_map.get(&(arch, word)).copied()
-        } else {
-            None
+) -> (Option<&'a Instruction>, Option<&'a Instruction>) {
+    match config.instruction_set {
+        Arch::X86_AND_X86_64 => {
+            let x86_resp = instr_map.get(&(Arch::X86, word)).copied();
+            let x86_64_resp = instr_map.get(&(Arch::X86_64, word)).copied();
+            (x86_resp, x86_64_resp)
         }
-    };
-
-    let instr_sets = &config.instruction_sets;
-    InstructionResp {
-        x86: lookup(instr_map, Arch::X86, word, instr_sets.x86.unwrap_or(false)),
-        x86_64: lookup(
-            instr_map,
-            Arch::X86_64,
-            word,
-            instr_sets.x86_64.unwrap_or(false),
-        ),
-        z80: lookup(instr_map, Arch::Z80, word, instr_sets.z80.unwrap_or(false)),
-        arm: lookup(instr_map, Arch::ARM, word, instr_sets.arm.unwrap_or(false)),
-        riscv: lookup(
-            instr_map,
-            Arch::RISCV,
-            word,
-            instr_sets.riscv.unwrap_or(false),
-        ),
+        arch => (instr_map.get(&(arch, word)).copied(), None),
     }
 }
 
@@ -882,83 +753,23 @@ fn search_for_reg_by_arch<'a>(
     word: &'a str,
     reg_map: &'a HashMap<(Arch, &str), &Register>,
     config: &Config,
-) -> RegisterResp<'a> {
-    let lookup = |reg_map: &'a HashMap<(Arch, &'a str), &Register>,
-                  arch: Arch,
-                  word: &'a str,
-                  check: bool|
-     -> Option<&'a Register> {
-        if check {
-            reg_map.get(&(arch, word)).copied()
-        } else {
-            None
+) -> (Option<&'a Register>, Option<&'a Register>) {
+    match config.instruction_set {
+        Arch::X86_AND_X86_64 => {
+            let x86_resp = reg_map.get(&(Arch::X86, word)).copied();
+            let x86_64_resp = reg_map.get(&(Arch::X86_64, word)).copied();
+            (x86_resp, x86_64_resp)
         }
-    };
-    let instr_sets = &config.instruction_sets;
-    RegisterResp {
-        x86: lookup(reg_map, Arch::X86, word, instr_sets.x86.unwrap_or(false)),
-        x86_64: lookup(
-            reg_map,
-            Arch::X86_64,
-            word,
-            instr_sets.x86_64.unwrap_or(false),
-        ),
-        z80: lookup(reg_map, Arch::Z80, word, instr_sets.z80.unwrap_or(false)),
-        arm: lookup(reg_map, Arch::ARM, word, instr_sets.arm.unwrap_or(false)),
-        riscv: lookup(
-            reg_map,
-            Arch::RISCV,
-            word,
-            instr_sets.riscv.unwrap_or(false),
-        ),
+        arch => (reg_map.get(&(arch, word)).copied(), None),
     }
 }
 
 fn search_for_dir_by_assembler<'a>(
     word: &'a str,
-    reg_map: &'a HashMap<(Assembler, &str), &Directive>,
+    dir_map: &'a HashMap<(Assembler, &str), &Directive>,
     config: &Config,
-) -> DirectiveResp<'a> {
-    let lookup = |reg_map: &'a HashMap<(Assembler, &'a str), &Directive>,
-                  arch: Assembler,
-                  word: &'a str,
-                  check: bool|
-     -> Option<&'a Directive> {
-        if check {
-            reg_map.get(&(arch, word)).copied()
-        } else {
-            None
-        }
-    };
-
-    let assemblers = &config.assemblers;
-    DirectiveResp {
-        gas: lookup(
-            reg_map,
-            Assembler::Gas,
-            word,
-            assemblers.gas.unwrap_or(false),
-        ),
-        go: lookup(reg_map, Assembler::Go, word, assemblers.go.unwrap_or(false)),
-        z80: lookup(
-            reg_map,
-            Assembler::Z80,
-            word,
-            assemblers.z80.unwrap_or(false),
-        ),
-        masm: lookup(
-            reg_map,
-            Assembler::Masm,
-            word,
-            assemblers.masm.unwrap_or(false),
-        ),
-        nasm: lookup(
-            reg_map,
-            Assembler::Nasm,
-            word,
-            assemblers.nasm.unwrap_or(false),
-        ),
-    }
+) -> Option<&'a Directive> {
+    dir_map.get(&(config.assembler, word)).copied()
 }
 
 fn get_instr_hover_resp(
@@ -967,39 +778,15 @@ fn get_instr_hover_resp(
     config: &Config,
 ) -> Option<Hover> {
     let instr_resp = search_for_instr_by_arch(word, instr_map, config);
-    if !instr_resp.has_resp() {
-        return None;
-    }
-
-    // lookups are already gated by `config` in `search_for_instr_by_arch`, no
-    // need to check `config` for each arch here
-    let mut has_entry = false;
-    let mut value = String::new();
-    if let Some(resp) = instr_resp.x86 {
-        // have to handle assembler-dependent information for x86/x86_64
-        value += &format!("{}", instr_filter_targets(resp, config));
-        has_entry = true;
-    }
-    if let Some(resp) = instr_resp.x86_64 {
-        // have to handle assembler-dependent information for x86/x86_64
-        value += &format!(
-            "{}{}",
-            if has_entry { "\n\n" } else { "" },
-            instr_filter_targets(resp, config)
-        );
-        has_entry = true;
-    }
-    if let Some(resp) = instr_resp.z80 {
-        value += &format!("{}{}", if has_entry { "\n\n" } else { "" }, resp);
-        has_entry = true;
-    }
-    if let Some(resp) = instr_resp.arm {
-        value += &format!("{}{}", if has_entry { "\n\n" } else { "" }, resp);
-        has_entry = true;
-    }
-    if let Some(resp) = instr_resp.riscv {
-        value += &format!("{}{}", if has_entry { "\n\n" } else { "" }, resp);
-    }
+    let value = match instr_resp {
+        (Some(instr1), Some(instr2)) => {
+            format!("{instr1}\n\n{instr2}")
+        }
+        (Some(instr), None) | (None, Some(instr)) => {
+            format!("{instr}")
+        }
+        (None, None) => return None,
+    };
 
     Some(Hover {
         contents: HoverContents::Markup(MarkupContent {
@@ -1016,14 +803,20 @@ fn get_reg_hover_resp(
     config: &Config,
 ) -> Option<Hover> {
     let reg_resp = search_for_reg_by_arch(word, reg_map, config);
-    if !reg_resp.has_resp() {
-        return None;
-    }
+    let value = match reg_resp {
+        (Some(reg1), Some(reg2)) => {
+            format!("{reg1}\n\n{reg2}")
+        }
+        (Some(reg), None) | (None, Some(reg)) => {
+            format!("{reg}")
+        }
+        (None, None) => return None,
+    };
 
     Some(Hover {
         contents: HoverContents::Markup(MarkupContent {
             kind: MarkupKind::Markdown,
-            value: reg_resp.to_string(),
+            value,
         }),
         range: None,
     })
@@ -1034,12 +827,7 @@ fn get_directive_hover_resp(
     dir_map: &HashMap<(Assembler, &str), &Directive>,
     config: &Config,
 ) -> Option<Hover> {
-    let dir_resp = search_for_dir_by_assembler(word, dir_map, config);
-    if !dir_resp.has_resp() {
-        return None;
-    }
-
-    Some(Hover {
+    search_for_dir_by_assembler(word, dir_map, config).map(|dir_resp| Hover {
         contents: HoverContents::Markup(MarkupContent {
             kind: MarkupKind::Markdown,
             value: dir_resp.to_string(),
@@ -1282,12 +1070,10 @@ pub fn get_comp_resp(
                 // prepend GAS registers, some NASM directives with "%"
                 Some("%") => {
                     let mut items = Vec::new();
-                    if config.instruction_sets.x86.unwrap_or(false)
-                        || config.instruction_sets.x86_64.unwrap_or(false)
-                    {
+                    if config.is_isa_enabled(Arch::X86) || config.is_isa_enabled(Arch::X86_64) {
                         items.append(&mut filtered_comp_list_arch(reg_comps, config));
                     }
-                    if config.assemblers.nasm.unwrap_or(false) {
+                    if config.is_assembler_enabled(Assembler::Nasm) {
                         items.append(&mut filtered_comp_list_assem(dir_comps, config, Some('%')));
                     }
 
@@ -1300,9 +1086,9 @@ pub fn get_comp_resp(
                 }
                 // prepend all GAS, some MASM, some NASM directives with "."
                 Some(".") => {
-                    if config.assemblers.gas.unwrap_or(false)
-                        || config.assemblers.masm.unwrap_or(false)
-                        || config.assemblers.nasm.unwrap_or(false)
+                    if config.is_assembler_enabled(Assembler::Gas)
+                        || config.is_assembler_enabled(Assembler::Masm)
+                        || config.is_assembler_enabled(Assembler::Nasm)
                     {
                         return Some(CompletionList {
                             is_incomplete: true,
@@ -1553,6 +1339,10 @@ pub fn get_document_symbols(
     }
 }
 
+/// Produces a signature help response if the appropriate instruction forms can
+/// be found
+///
+/// # Panics
 #[allow(clippy::too_many_lines)]
 pub fn get_sig_help_resp(
     curr_doc: &str,
@@ -1595,85 +1385,40 @@ pub fn get_sig_help_resp(
             if caps.len() == 1 && caps[0].node.end_byte() < curr_doc.len() {
                 if let Ok(instr_name) = caps[0].node.utf8_text(curr_doc) {
                     let mut value = String::new();
-                    let mut has_x86 = false;
-                    let mut has_x86_64 = false;
-                    let mut has_z80 = false;
-                    let mut has_arm = false;
-                    let instr_resp = search_for_instr_by_arch(instr_name, instr_info, config);
-                    if !instr_resp.has_resp() {
-                        return None;
-                    }
-                    if let Some(sig) = instr_resp.x86 {
-                        for form in &sig.forms {
-                            if let Some(ref gas_name) = form.gas_name {
-                                if instr_name.eq_ignore_ascii_case(gas_name) {
-                                    if !has_x86 {
-                                        value += "**x86**\n";
-                                        has_x86 = true;
+                    let (instr1, instr2) = search_for_instr_by_arch(instr_name, instr_info, config);
+                    let instructions = vec![instr1, instr2];
+                    for instr in instructions.into_iter().flatten() {
+                        for form in &instr.forms {
+                            match instr.arch {
+                                Some(Arch::X86 | Arch::X86_64) => {
+                                    if let Some(ref gas_name) = form.gas_name {
+                                        if instr_name.eq_ignore_ascii_case(gas_name) {
+                                            value +=
+                                                &format!("**{}**\n{form}\n", instr.arch.unwrap());
+                                        }
+                                    } else if let Some(ref go_name) = form.go_name {
+                                        if instr_name.eq_ignore_ascii_case(go_name) {
+                                            value +=
+                                                &format!("**{}**\n{form}\n", instr.arch.unwrap());
+                                        }
                                     }
-                                    value += &format!("{form}\n");
                                 }
-                            } else if let Some(ref go_name) = form.go_name {
-                                if instr_name.eq_ignore_ascii_case(go_name) {
-                                    if !has_x86 {
-                                        value += "**x86**\n";
-                                        has_x86 = true;
+                                Some(Arch::Z80) => {
+                                    for form in &instr.forms {
+                                        if let Some(ref z80_name) = form.z80_name {
+                                            if instr_name.eq_ignore_ascii_case(z80_name) {
+                                                value += &format!("{form}\n");
+                                            }
+                                        }
                                     }
-                                    value += &format!("{form}\n");
                                 }
-                            }
-                        }
-                    }
-                    if let Some(sig) = instr_resp.x86_64 {
-                        for form in &sig.forms {
-                            if let Some(ref gas_name) = form.gas_name {
-                                if instr_name.eq_ignore_ascii_case(gas_name) {
-                                    if !has_x86_64 {
-                                        value += "**x86_64**\n";
-                                        has_x86_64 = true;
+                                Some(Arch::ARM | Arch::RISCV) => {
+                                    for form in &instr.asm_templates {
+                                        value += &format!("{form}\n");
                                     }
-                                    value += &format!("{form}\n");
                                 }
-                            } else if let Some(ref go_name) = form.go_name {
-                                if instr_name.eq_ignore_ascii_case(go_name) {
-                                    if !has_x86_64 {
-                                        value += "**x86_64**\n";
-                                        has_x86_64 = true;
-                                    }
-                                    value += &format!("{form}\n");
-                                }
+                                _ => {}
                             }
-                        }
-                    }
-                    if let Some(sig) = instr_resp.z80 {
-                        for form in &sig.forms {
-                            if let Some(ref z80_name) = form.z80_name {
-                                if instr_name.eq_ignore_ascii_case(z80_name) {
-                                    if !has_z80 {
-                                        value += "**z80**\n";
-                                        has_z80 = true;
-                                    }
-                                    value += &format!("{form}\n");
-                                }
-                            }
-                        }
-                    }
-                    if let Some(sig) = instr_resp.arm {
-                        for form in &sig.asm_templates {
-                            if !has_arm {
-                                value += "**arm**\n";
-                                has_arm = true;
-                            }
-                            value += &format!("{form}\n");
-                        }
-                    }
-                    if let Some(sig) = instr_resp.riscv {
-                        for form in &sig.asm_templates {
-                            if !has_arm {
-                                value += "**riscv**\n";
-                                has_arm = true;
-                            }
-                            value += &format!("{form}\n");
                         }
                     }
                     if !value.is_empty() {
@@ -2064,17 +1809,16 @@ pub fn instr_filter_targets(instr: &Instruction, config: &Config) -> Instruction
         .forms
         .iter()
         .filter(|form| {
-            (form.gas_name.is_some() && config.assemblers.gas.unwrap_or(false))
-                || (form.go_name.is_some() && config.assemblers.go.unwrap_or(false))
-                || (form.z80_name.is_some() && config.instruction_sets.z80.unwrap_or(false))
+            (form.gas_name.is_some() && config.is_assembler_enabled(Assembler::Gas))
+                || (form.go_name.is_some() && config.is_assembler_enabled(Assembler::Go))
         })
         .map(|form| {
             let mut filtered = form.clone();
             // handle cases where gas and go both have names on the same form
-            if !config.assemblers.gas.unwrap_or(false) {
+            if !config.is_assembler_enabled(Assembler::Gas) {
                 filtered.gas_name = None;
             }
-            if !config.assemblers.go.unwrap_or(false) {
+            if !config.is_assembler_enabled(Assembler::Go) {
                 filtered.go_name = None;
             }
             filtered
