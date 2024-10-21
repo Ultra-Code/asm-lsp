@@ -20,8 +20,8 @@ use tree_sitter::Parser;
 use crate::{
     apply_compile_cmd, get_comp_resp, get_default_compile_cmd, get_document_symbols,
     get_goto_def_resp, get_hover_resp, get_ref_resp, get_sig_help_resp, get_word_from_pos_params,
-    send_empty_resp, text_doc_change_to_ts_edit, Arch, Assembler, Config, NameToInfoMaps,
-    NameToInstructionMap, TreeEntry, TreeStore,
+    send_empty_resp, text_doc_change_to_ts_edit, Arch, Assembler, Config, ConfigOptions,
+    NameToInfoMaps, NameToInstructionMap, TreeEntry, TreeStore,
 };
 
 /// Handles hover requests
@@ -317,7 +317,17 @@ pub fn handle_diagnostics(
     // If no user-provided entries corresponded to the file, just try out
     // invoking the user-provided compiler (if they gave one), or alternatively
     // gcc (and clang if that fails) with the source file path as the only argument
-    if !has_entries && cfg.opts.default_diagnostics.unwrap_or(false) {
+    if !has_entries
+        && matches!(
+            cfg.opts,
+            // NOTE: We ensure this field is always `Some` at load time
+            Some(ConfigOptions {
+                // NOTE: We ensure this field is always `Some` at load time
+                default_diagnostics: Some(true),
+                ..
+            })
+        )
+    {
         info!(
             "No applicable user-provided commands for {}. Applying default compile command",
             uri.path().as_str()

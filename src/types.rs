@@ -975,7 +975,7 @@ pub struct Config {
     pub version: Option<String>,
     pub assembler: Assembler,
     pub instruction_set: Arch,
-    pub opts: ConfigOptions,
+    pub opts: Option<ConfigOptions>,
     #[serde(skip)]
     pub client: Option<LspClient>,
 }
@@ -986,7 +986,7 @@ impl Default for Config {
             version: Some(String::from("0.1")),
             assembler: Assembler::default(),
             instruction_set: Arch::default(),
-            opts: ConfigOptions::default(),
+            opts: Some(ConfigOptions::default()),
             client: None,
         }
     }
@@ -999,8 +999,19 @@ impl Config {
             version: None,
             assembler: Assembler::None,
             instruction_set: Arch::None,
-            opts: ConfigOptions::empty(),
+            opts: Some(ConfigOptions::empty()),
             client: None,
+        }
+    }
+
+    #[must_use]
+    pub fn get_compiler(&self) -> Option<&str> {
+        match self.opts {
+            Some(ConfigOptions {
+                compiler: Some(ref compiler),
+                ..
+            }) => Some(compiler),
+            _ => None,
         }
     }
 

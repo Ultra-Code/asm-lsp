@@ -73,10 +73,7 @@ path = "arm-project"
 assembler = "Gas"
 instruction_set = "arm"
 
-[project.opts]
-compiler = "zig"
-diagnostics = true
-default_diagnostics = true
+# NOTE: Specifying the `opts` field isn't necessary
 ```
 
 ### [OPTIONAL] Extend functionality via `compile_commands.json`/`compile_flags.txt`

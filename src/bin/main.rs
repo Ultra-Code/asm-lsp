@@ -511,7 +511,7 @@ fn main_loop(
                         compile_cmds
                     };
                     // Ok to unwrap, this should never be `None`
-                    if project_config.opts.diagnostics.unwrap() {
+                    if project_config.opts.as_ref().unwrap().diagnostics.unwrap() {
                         handle_diagnostics(
                             connection,
                             &params.text_document.uri,
@@ -561,7 +561,7 @@ fn main_loop(
                 } else if let Ok(params) = cast_notif::<DidSaveTextDocument>(notif.clone()) {
                     let project_config = config.get_config(&params.text_document.uri);
                     // Ok to unwrap, this should never be `None`
-                    if project_config.opts.diagnostics.unwrap() {
+                    if project_config.opts.as_ref().unwrap().diagnostics.unwrap() {
                         let cmp_cmds = if let Some(cmd) =
                             get_comp_cmd_for_path(config, &params.text_document.uri)
                         {

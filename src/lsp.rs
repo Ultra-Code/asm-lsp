@@ -31,8 +31,8 @@ use tree_sitter::InputEdit;
 
 use crate::types::Column;
 use crate::{
-    Arch, ArchOrAssembler, Assembler, Completable, Config, Directive, Instruction, LspClient,
-    NameToInstructionMap, Register, RootConfig, TreeEntry, TreeStore,
+    Arch, ArchOrAssembler, Assembler, Completable, Config, ConfigOptions, Directive, Instruction,
+    LspClient, NameToInstructionMap, Register, RootConfig, TreeEntry, TreeStore,
 };
 
 /// Sends an empty, non-error response to the lsp client via `connection`
@@ -408,7 +408,7 @@ pub fn get_comp_cmd_for_path(config: &RootConfig, req_uri: &Uri) -> Option<Compi
 /// uninitialized to avoid unnecessary allocations. If you're using this function
 /// in a new place, please reconsider this assumption
 pub fn get_default_compile_cmd(uri: &Uri, cfg: &Config) -> CompileCommand {
-    if let Some(ref compiler) = cfg.opts.compiler {
+    if let Some(compiler) = cfg.get_compiler() {
         CompileCommand {
             file: SourceFile::All, // Field isn't checked when called, intentionally left in odd state here
             directory: PathBuf::new(), // Field isn't checked when called, intentionally left uninitialized here
@@ -444,9 +444,9 @@ pub fn apply_compile_cmd(
     if let Some(ref args) = compile_cmd.arguments {
         match args {
             CompileArgs::Flags(flags) => {
-                let compilers = if let Some(ref compiler) = cfg.opts.compiler {
+                let compilers = if let Some(compiler) = cfg.get_compiler() {
                     // If the user specified a compiler in their config, use it
-                    vec![compiler.as_str()]
+                    vec![compiler]
                 } else {
                     // Otherwise go with these defaults
                     vec!["gcc", "clang"]
@@ -1603,20 +1603,19 @@ pub fn get_root_config(params: &InitializeParams) -> RootConfig {
                     continue;
                 };
                 projects[project_idx].path = project_path;
-                // Want diagnostics enabled by default
-                if projects[project_idx].config.opts.diagnostics.is_none() {
-                    projects[project_idx].config.opts.diagnostics = Some(true);
+                if let Some(ref mut opts) = projects[project_idx].config.opts {
+                    // Want diagnostics enabled by default
+                    if opts.diagnostics.is_none() {
+                        opts.diagnostics = Some(true);
+                    }
+                    // Want default diagnostics enabled by default
+                    if opts.default_diagnostics.is_none() {
+                        opts.default_diagnostics = Some(true);
+                    }
+                } else {
+                    projects[project_idx].config.opts = Some(ConfigOptions::default());
                 }
 
-                // Want default diagnostics enabled by default
-                if projects[project_idx]
-                    .config
-                    .opts
-                    .default_diagnostics
-                    .is_none()
-                {
-                    projects[project_idx].config.opts.default_diagnostics = Some(true);
-                }
                 project_idx += 1;
             }
         } else {
@@ -1654,14 +1653,17 @@ pub fn get_root_config(params: &InitializeParams) -> RootConfig {
 
     // Enforce default diagnostics settings for default config
     if let Some(ref mut default_cfg) = config.default_config {
-        // Want diagnostics enabled by default
-        if default_cfg.opts.diagnostics.is_none() {
-            default_cfg.opts.diagnostics = Some(true);
-        }
-
-        // Want default diagnostics enabled by default
-        if default_cfg.opts.default_diagnostics.is_none() {
-            default_cfg.opts.default_diagnostics = Some(true);
+        if let Some(ref mut opts) = default_cfg.opts {
+            // Want diagnostics enabled by default
+            if opts.diagnostics.is_none() {
+                opts.diagnostics = Some(true);
+            }
+            // Want default diagnostics enabled by default
+            if opts.default_diagnostics.is_none() {
+                opts.default_diagnostics = Some(true);
+            }
+        } else {
+            default_cfg.opts = Some(ConfigOptions::default());
         }
     } else {
         // provide a default empty configuration for sub-directories

@@ -28,11 +28,11 @@ mod tests {
             version: Some("0.1".to_string()),
             assembler: Assembler::None,
             instruction_set: Arch::None,
-            opts: ConfigOptions {
+            opts: Some(ConfigOptions {
                 compiler: None,
                 diagnostics: None,
                 default_diagnostics: None,
-            },
+            }),
             client: None,
         }
     }
@@ -42,11 +42,7 @@ mod tests {
             version: Some("0.1".to_string()),
             assembler: Assembler::None,
             instruction_set: Arch::Z80,
-            opts: ConfigOptions {
-                compiler: None,
-                diagnostics: None,
-                default_diagnostics: None,
-            },
+            opts: Some(ConfigOptions::default()),
             client: None,
         }
     }
@@ -56,11 +52,7 @@ mod tests {
             version: Some("0.1".to_string()),
             assembler: Assembler::None,
             instruction_set: Arch::ARM,
-            opts: ConfigOptions {
-                compiler: None,
-                diagnostics: None,
-                default_diagnostics: None,
-            },
+            opts: Some(ConfigOptions::default()),
             client: None,
         }
     }
@@ -70,11 +62,7 @@ mod tests {
             version: Some("0.1".to_string()),
             assembler: Assembler::None,
             instruction_set: Arch::RISCV,
-            opts: ConfigOptions {
-                compiler: None,
-                diagnostics: None,
-                default_diagnostics: None,
-            },
+            opts: Some(ConfigOptions::default()),
             client: None,
         }
     }
@@ -82,16 +70,13 @@ mod tests {
     fn x86_x86_64_test_config() -> Config {
         Config {
             version: Some("0.1".to_string()),
-            assembler: Assembler::Gas, // HACK: The Gas or Go assembler must be enabled for this test
+            // HACK: The Gas or Go assembler must be enabled for this test
             // config, as filtering later on removes any x86/x86-64
-            // instruction without any form fields that match one of
+            // instructions without any `form` fields that match one of
             // those assemblers
+            assembler: Assembler::Gas,
             instruction_set: Arch::X86_AND_X86_64,
-            opts: ConfigOptions {
-                compiler: None,
-                diagnostics: None,
-                default_diagnostics: None,
-            },
+            opts: Some(ConfigOptions::default()),
             client: None,
         }
     }
@@ -101,11 +86,7 @@ mod tests {
             version: Some("0.1".to_string()),
             assembler: Assembler::Gas,
             instruction_set: Arch::None,
-            opts: ConfigOptions {
-                compiler: None,
-                diagnostics: None,
-                default_diagnostics: None,
-            },
+            opts: Some(ConfigOptions::default()),
             client: None,
         }
     }
@@ -115,11 +96,7 @@ mod tests {
             version: Some("0.1".to_string()),
             assembler: Assembler::Masm,
             instruction_set: Arch::None,
-            opts: ConfigOptions {
-                compiler: None,
-                diagnostics: None,
-                default_diagnostics: None,
-            },
+            opts: Some(ConfigOptions::default()),
             client: None,
         }
     }
@@ -129,11 +106,7 @@ mod tests {
             version: Some("0.1".to_string()),
             assembler: Assembler::Nasm,
             instruction_set: Arch::None,
-            opts: ConfigOptions {
-                compiler: None,
-                diagnostics: None,
-                default_diagnostics: None,
-            },
+            opts: Some(ConfigOptions::default()),
             client: None,
         }
     }
