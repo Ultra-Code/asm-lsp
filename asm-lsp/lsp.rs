@@ -357,7 +357,7 @@ fn get_compilation_db_files(path: &Path) -> Option<CompilationDatabase> {
 /// # Panics
 ///
 /// Will panic if `req_uri` cannot be canonicalized
-pub fn get_comp_cmd_for_path(config: &RootConfig, req_uri: &Uri) -> Option<CompileCommand> {
+pub fn get_compile_cmd_for_path(config: &RootConfig, req_uri: &Uri) -> Option<CompileCommand> {
     #[allow(irrefutable_let_patterns)]
     let Ok(req_path) = PathBuf::from_str(req_uri.path().as_str()) else {
         unreachable!()
@@ -369,33 +369,54 @@ pub fn get_comp_cmd_for_path(config: &RootConfig, req_uri: &Uri) -> Option<Compi
     // if the path is within a project configuration and that project specifies
     // a compiler invocation, use it
     if let Some(project) = config.get_project(&request_path) {
-        if let Some(ref cmd) = project.compile_cmd {
-            info!("Used config compile command!");
-            let args = {
-                let mut user_cmds: Vec<String> =
-                    cmd.split_whitespace().map(ToString::to_string).collect();
-                if let Some(path) = request_path.to_str() {
-                    user_cmds.push(path.to_string()); // append the request path as the last
-                                                      // compiler argument
-                }
-                user_cmds
-            };
-            // let directory = if project.path.is_dir() {
-            //     project.path.clone()
-            // } else {
-            //     project
-            //         .path
-            //         .parent()
-            //         .map_or(PathBuf::new(), ToOwned::to_owned)
-            // };
-            return Some(CompileCommand {
-                file: SourceFile::File(request_path.clone()),
-                directory: PathBuf::new(),
-                arguments: Some(CompileArgs::Arguments(args)),
-                command: None,
-                output: None,
-            });
-        }
+        return project.config.get_compiler().map_or_else(
+            || {
+                Some(CompileCommand {
+                    file: SourceFile::File(request_path.clone()),
+                    directory: PathBuf::new(),
+                    arguments: Some(CompileArgs::Arguments(vec![])),
+                    command: None,
+                    output: None,
+                })
+            },
+            |compiler| {
+                project.config.opts.as_ref().map_or_else(
+                    || {
+                        Some(CompileCommand {
+                            file: SourceFile::File(request_path.clone()),
+                            directory: PathBuf::new(),
+                            arguments: Some(CompileArgs::Arguments(vec![compiler.to_owned()])),
+                            command: None,
+                            output: None,
+                        })
+                    },
+                    |opts| {
+                        let compiler_with_args = {
+                            opts.compile_flags_txt.as_ref().map_or_else(
+                                std::vec::Vec::new,
+                                |project_compile_flags| {
+                                    let mut compile_cmd = vec![];
+                                    compile_cmd.push(compiler.to_owned());
+                                    compile_cmd.extend(project_compile_flags.to_owned());
+                                    if let Some(path) = request_path.to_str() {
+                                        // append the request path as the last compiler argument
+                                        compile_cmd.push(path.to_string());
+                                    }
+                                    compile_cmd
+                                },
+                            )
+                        };
+                        Some(CompileCommand {
+                            file: SourceFile::File(request_path.clone()),
+                            directory: PathBuf::new(),
+                            arguments: Some(CompileArgs::Arguments(compiler_with_args)),
+                            command: None,
+                            output: None,
+                        })
+                    },
+                )
+            },
+        );
     }
 
     None
@@ -631,21 +652,19 @@ pub fn text_doc_change_to_ts_edit(
 /// contained within the map
 #[must_use]
 pub fn get_completes<T: Completable, U: ArchOrAssembler>(
-    map: &HashMap<(U, &str), T>,
+    map: &HashMap<(U, String), T>,
     kind: Option<CompletionItemKind>,
 ) -> Vec<(U, CompletionItem)> {
     map.iter()
         .map(|((arch_or_asm, name), item_info)| {
-            let value = item_info.to_string();
-
             (
                 *arch_or_asm,
                 CompletionItem {
-                    label: (*name).to_string(),
+                    label: name.to_owned(),
                     kind,
                     documentation: Some(Documentation::MarkupContent(MarkupContent {
                         kind: MarkupKind::Markdown,
-                        value,
+                        value: item_info.to_string(),
                     })),
                     ..Default::default()
                 },
@@ -662,9 +681,9 @@ pub fn get_hover_resp(
     cursor_offset: usize,
     text_store: &TextDocuments,
     tree_store: &mut TreeStore,
-    instruction_map: &HashMap<(Arch, &str), &Instruction>,
-    register_map: &HashMap<(Arch, &str), &Register>,
-    directive_map: &HashMap<(Assembler, &str), &Directive>,
+    instruction_map: &HashMap<(Arch, String), Instruction>,
+    register_map: &HashMap<(Arch, String), Register>,
+    directive_map: &HashMap<(Assembler, String), Directive>,
     include_dirs: &HashMap<SourceFile, Vec<PathBuf>>,
 ) -> Option<Hover> {
     let instr_lookup = get_instr_hover_resp(word, instruction_map, config);
@@ -755,45 +774,45 @@ pub fn get_hover_resp(
 
 fn search_for_instr_by_arch<'a>(
     word: &'a str,
-    instr_map: &'a HashMap<(Arch, &str), &Instruction>,
+    instr_map: &'a HashMap<(Arch, String), Instruction>,
     config: &Config,
 ) -> (Option<&'a Instruction>, Option<&'a Instruction>) {
     match config.instruction_set {
         Arch::X86_AND_X86_64 => {
-            let x86_resp = instr_map.get(&(Arch::X86, word)).copied();
-            let x86_64_resp = instr_map.get(&(Arch::X86_64, word)).copied();
+            let x86_resp = instr_map.get(&(Arch::X86, word.to_owned()));
+            let x86_64_resp = instr_map.get(&(Arch::X86_64, word.to_owned()));
             (x86_resp, x86_64_resp)
         }
-        arch => (instr_map.get(&(arch, word)).copied(), None),
+        arch => (instr_map.get(&(arch, word.to_owned())), None),
     }
 }
 
 fn search_for_reg_by_arch<'a>(
     word: &'a str,
-    reg_map: &'a HashMap<(Arch, &str), &Register>,
+    reg_map: &'a HashMap<(Arch, String), Register>,
     config: &Config,
 ) -> (Option<&'a Register>, Option<&'a Register>) {
     match config.instruction_set {
         Arch::X86_AND_X86_64 => {
-            let x86_resp = reg_map.get(&(Arch::X86, word)).copied();
-            let x86_64_resp = reg_map.get(&(Arch::X86_64, word)).copied();
+            let x86_resp = reg_map.get(&(Arch::X86, word.to_owned()));
+            let x86_64_resp = reg_map.get(&(Arch::X86_64, word.to_owned()));
             (x86_resp, x86_64_resp)
         }
-        arch => (reg_map.get(&(arch, word)).copied(), None),
+        arch => (reg_map.get(&(arch, word.to_owned())), None),
     }
 }
 
 fn search_for_dir_by_assembler<'a>(
     word: &'a str,
-    dir_map: &'a HashMap<(Assembler, &str), &Directive>,
+    dir_map: &'a HashMap<(Assembler, String), Directive>,
     config: &Config,
 ) -> Option<&'a Directive> {
-    dir_map.get(&(config.assembler, word)).copied()
+    dir_map.get(&(config.assembler, word.to_owned()))
 }
 
 fn get_instr_hover_resp(
     word: &str,
-    instr_map: &HashMap<(Arch, &str), &Instruction>,
+    instr_map: &HashMap<(Arch, String), Instruction>,
     config: &Config,
 ) -> Option<Hover> {
     let hovered_word = word.to_ascii_lowercase();
@@ -819,7 +838,7 @@ fn get_instr_hover_resp(
 
 fn get_reg_hover_resp(
     word: &str,
-    reg_map: &HashMap<(Arch, &str), &Register>,
+    reg_map: &HashMap<(Arch, String), Register>,
     config: &Config,
 ) -> Option<Hover> {
     let hovered_text = word.to_ascii_lowercase();
@@ -845,7 +864,7 @@ fn get_reg_hover_resp(
 
 fn get_directive_hover_resp(
     word: &str,
-    dir_map: &HashMap<(Assembler, &str), &Directive>,
+    dir_map: &HashMap<(Assembler, String), Directive>,
     config: &Config,
 ) -> Option<Hover> {
     let hovered_word = word.to_ascii_lowercase();
@@ -1627,17 +1646,18 @@ pub fn get_root_config(params: &InitializeParams) -> RootConfig {
 
     // Validate project paths and enforce default diagnostics settings
     if let Some(ref mut projects) = config.projects {
-        if let Some(ref path) = get_project_root(params) {
+        if let Some(ref project_root) = get_project_root(params) {
             let mut project_idx = 0;
             while project_idx < projects.len() {
-                let mut path = path.clone();
-                path.push(&projects[project_idx].path);
-                let Ok(project_path) = path.canonicalize() else {
-                    error!("Failed to canonicalize project path \"{}\", disabling this project configuration.", path.display());
+                let mut project_path = project_root.clone();
+                project_path.push(&projects[project_idx].path);
+                let Ok(canonicalized_project_path) = project_path.canonicalize() else {
+                    error!("Failed to canonicalize project path \"{}\", disabling this project configuration.", project_path.display());
                     projects.remove(project_idx);
                     continue;
                 };
-                projects[project_idx].path = project_path;
+                projects[project_idx].path = canonicalized_project_path;
+
                 if let Some(ref mut opts) = projects[project_idx].config.opts {
                     // Want diagnostics enabled by default
                     if opts.diagnostics.is_none() {
@@ -1716,6 +1736,7 @@ pub fn get_root_config(params: &InitializeParams) -> RootConfig {
     } else {
         // provide a default empty configuration for sub-directories
         // not specified in `projects`
+        // TODO: maybe default_config should be default not empty
         config.default_config = Some(Config::empty());
     }
 
@@ -1827,14 +1848,19 @@ fn get_project_config(params: &InitializeParams) -> Option<RootConfig> {
         path.push(".asm-lsp.toml");
         match std::fs::read_to_string(&path) {
             Ok(config) => {
-                let path_s = path.display();
                 match toml::from_str::<RootConfig>(&config) {
                     Ok(config) => {
-                        info!("Parsing asm-lsp project config from file -> {path_s}");
+                        info!(
+                            "Parsing asm-lsp project config from file -> {}",
+                            path.display()
+                        );
                         return Some(config);
                     }
                     Err(e) => {
-                        error!("Failed to parse project config file {path_s} - Error: {e}");
+                        error!(
+                            "Failed to parse project config file {} - Error: {e}",
+                            path.display()
+                        );
                     } // if there's an error we fall through to check for a global config in the caller
                 }
             }

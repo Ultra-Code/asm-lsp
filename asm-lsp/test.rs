@@ -13,12 +13,12 @@ mod tests {
     };
     use tree_sitter::Parser;
 
+    use crate::populate_gas_directives;
     use crate::{
         get_comp_resp, get_completes, get_hover_resp, get_word_from_pos_params,
         instr_filter_targets,
         parser::{get_cache_dir, populate_arm_instructions, populate_masm_nasm_directives},
-        populate_gas_directives, populate_instructions, populate_name_to_directive_map,
-        populate_name_to_instruction_map, populate_name_to_register_map, populate_registers, Arch,
+        populate_instructions, populate_name_to_instruction_map, populate_registers, Arch,
         Assembler, Config, ConfigOptions, Directive, Instruction, NameToDirectiveMap,
         NameToInstructionMap, NameToRegisterMap, Register, TreeEntry, TreeStore,
     };
@@ -26,9 +26,10 @@ mod tests {
     fn empty_test_config() -> Config {
         Config {
             version: Some("0.1".to_string()),
-            assembler: Assembler::None,
-            instruction_set: Arch::None,
+            assembler: Assembler::Gas,
+            instruction_set: Arch::X86_64,
             opts: Some(ConfigOptions {
+                compile_flags_txt: None,
                 compiler: None,
                 diagnostics: None,
                 default_diagnostics: None,
@@ -40,7 +41,7 @@ mod tests {
     fn z80_test_config() -> Config {
         Config {
             version: Some("0.1".to_string()),
-            assembler: Assembler::None,
+            assembler: Assembler::Gas,
             instruction_set: Arch::Z80,
             opts: Some(ConfigOptions::default()),
             client: None,
@@ -50,7 +51,7 @@ mod tests {
     fn arm_test_config() -> Config {
         Config {
             version: Some("0.1".to_string()),
-            assembler: Assembler::None,
+            assembler: Assembler::Gas,
             instruction_set: Arch::ARM,
             opts: Some(ConfigOptions::default()),
             client: None,
@@ -60,7 +61,7 @@ mod tests {
     fn riscv_test_config() -> Config {
         Config {
             version: Some("0.1".to_string()),
-            assembler: Assembler::None,
+            assembler: Assembler::Gas,
             instruction_set: Arch::RISCV,
             opts: Some(ConfigOptions::default()),
             client: None,
@@ -85,7 +86,7 @@ mod tests {
         Config {
             version: Some("0.1".to_string()),
             assembler: Assembler::Gas,
-            instruction_set: Arch::None,
+            instruction_set: Arch::X86_64,
             opts: Some(ConfigOptions::default()),
             client: None,
         }
@@ -95,7 +96,7 @@ mod tests {
         Config {
             version: Some("0.1".to_string()),
             assembler: Assembler::Masm,
-            instruction_set: Arch::None,
+            instruction_set: Arch::X86_64,
             opts: Some(ConfigOptions::default()),
             client: None,
         }
@@ -105,64 +106,23 @@ mod tests {
         Config {
             version: Some("0.1".to_string()),
             assembler: Assembler::Nasm,
-            instruction_set: Arch::None,
+            instruction_set: Arch::X86_64,
             opts: Some(ConfigOptions::default()),
             client: None,
         }
     }
 
     #[derive(Debug)]
-    struct GlobalInfo {
-        x86_instructions: Vec<Instruction>,
-        x86_64_instructions: Vec<Instruction>,
-        x86_registers: Vec<Register>,
-        x86_64_registers: Vec<Register>,
-        arm_instructions: Vec<Instruction>,
-        arm_registers: Vec<Register>,
-        arm64_instructions: Vec<Instruction>,
-        arm64_registers: Vec<Register>,
-        riscv_instructions: Vec<Instruction>,
-        riscv_registers: Vec<Register>,
-        z80_instructions: Vec<Instruction>,
-        z80_registers: Vec<Register>,
-        gas_directives: Vec<Directive>,
-        masm_directives: Vec<Directive>,
-        nasm_directives: Vec<Directive>,
-    }
-
-    #[derive(Debug)]
-    struct GlobalVars<'a> {
-        names_to_instructions: NameToInstructionMap<'a>,
-        names_to_registers: NameToRegisterMap<'a>,
-        names_to_directives: NameToDirectiveMap<'a>,
+    struct AsmStore {
+        names_to_instructions: NameToInstructionMap,
+        names_to_registers: NameToRegisterMap,
+        names_to_directives: NameToDirectiveMap,
         instr_completion_items: Vec<(Arch, CompletionItem)>,
         reg_completion_items: Vec<(Arch, CompletionItem)>,
         directive_completion_items: Vec<(Assembler, CompletionItem)>,
     }
 
-    impl GlobalInfo {
-        const fn new() -> Self {
-            Self {
-                x86_instructions: Vec::new(),
-                x86_64_instructions: Vec::new(),
-                x86_registers: Vec::new(),
-                x86_64_registers: Vec::new(),
-                arm_instructions: Vec::new(),
-                arm_registers: Vec::new(),
-                arm64_instructions: Vec::new(),
-                arm64_registers: Vec::new(),
-                riscv_instructions: Vec::new(),
-                riscv_registers: Vec::new(),
-                z80_instructions: Vec::new(),
-                z80_registers: Vec::new(),
-                gas_directives: Vec::new(),
-                masm_directives: Vec::new(),
-                nasm_directives: Vec::new(),
-            }
-        }
-    }
-
-    impl GlobalVars<'_> {
+    impl AsmStore {
         fn new() -> Self {
             Self {
                 names_to_instructions: NameToInstructionMap::new(),
@@ -175,229 +135,141 @@ mod tests {
         }
     }
 
-    fn init_global_info(config: &Config) -> Result<GlobalInfo> {
-        let mut info = GlobalInfo::new();
+    fn init_global_info(config: &Config) -> Result<AsmStore> {
+        let mut store = AsmStore::new();
 
-        info.x86_instructions = if config.is_isa_enabled(Arch::X86) {
-            let x86_instrs = include_bytes!("serialized/opcodes/x86");
-            bincode::deserialize::<Vec<Instruction>>(x86_instrs)?
-                .into_iter()
-                .map(|instruction| {
-                    // filter out assemblers by user config
-                    instr_filter_targets(&instruction, config)
-                })
-                .filter(|instruction| !instruction.forms.is_empty())
-                .collect()
-        } else {
-            Vec::new()
-        };
+        //TODO: find out why there is this special filtering in x86 and x86-64
+        //so that we can transition to using Arch::setup_instructions !!DRY!!
+        match config.instruction_set {
+            Arch::X86 => {
+                let x86_instrs = include_bytes!("serialized/opcodes/x86");
+                let x86_instructions = bincode::deserialize::<Vec<Instruction>>(x86_instrs)?
+                    .into_iter()
+                    .map(|instruction| {
+                        // filter out assemblers by user config
+                        instr_filter_targets(&instruction, config)
+                    })
+                    .filter(|instruction| !instruction.forms.is_empty())
+                    .collect();
 
-        info.x86_64_instructions = if config.is_isa_enabled(Arch::X86_64) {
-            let x86_64_instrs = include_bytes!("serialized/opcodes/x86_64");
-            bincode::deserialize::<Vec<Instruction>>(x86_64_instrs)?
-                .into_iter()
-                .map(|instruction| {
-                    // filter out assemblers by user config
-                    instr_filter_targets(&instruction, config)
-                })
-                .filter(|instruction| !instruction.forms.is_empty())
-                .collect()
-        } else {
-            Vec::new()
-        };
+                populate_name_to_instruction_map(
+                    Arch::X86,
+                    x86_instructions,
+                    &mut store.names_to_instructions,
+                );
+            }
+            Arch::X86_64 => {
+                let x86_64_instrs = include_bytes!("serialized/opcodes/x86_64");
+                let x86_64_instructions: Vec<Instruction> =
+                    bincode::deserialize::<Vec<Instruction>>(x86_64_instrs)?
+                        .into_iter()
+                        .map(|instruction| {
+                            // filter out assemblers by user config
+                            instr_filter_targets(&instruction, config)
+                        })
+                        .filter(|instruction| !instruction.forms.is_empty())
+                        .collect();
 
-        info.z80_instructions = if config.is_isa_enabled(Arch::Z80) {
-            let z80_instrs = include_bytes!("serialized/opcodes/z80");
-            bincode::deserialize::<Vec<Instruction>>(z80_instrs)?
-        } else {
-            Vec::new()
-        };
+                populate_name_to_instruction_map(
+                    Arch::X86_64,
+                    x86_64_instructions,
+                    &mut store.names_to_instructions,
+                );
+            }
+            // TODO: Do we really need this? Check if x86 and X86_64 common parts are duplicated
+            Arch::X86_AND_X86_64 => {
+                let x86_instrs = include_bytes!("serialized/opcodes/x86");
+                let x86_instructions = bincode::deserialize::<Vec<Instruction>>(x86_instrs)?
+                    .into_iter()
+                    .map(|instruction| {
+                        // filter out assemblers by user config
+                        instr_filter_targets(&instruction, config)
+                    })
+                    .filter(|instruction| !instruction.forms.is_empty())
+                    .collect();
 
-        info.arm_instructions = if config.is_isa_enabled(Arch::ARM) {
-            let arm_instrs = include_bytes!("serialized/opcodes/arm");
-            bincode::deserialize::<Vec<Instruction>>(arm_instrs)?
-        } else {
-            Vec::new()
-        };
+                populate_name_to_instruction_map(
+                    Arch::X86,
+                    x86_instructions,
+                    &mut store.names_to_instructions,
+                );
 
-        info.arm64_instructions = if config.is_isa_enabled(Arch::ARM64) {
-            let arm64_instrs = include_bytes!("serialized/opcodes/arm64");
-            bincode::deserialize::<Vec<Instruction>>(arm64_instrs)?
-        } else {
-            Vec::new()
-        };
+                let x86_64_instrs = include_bytes!("serialized/opcodes/x86_64");
+                let x86_64_instructions: Vec<Instruction> =
+                    bincode::deserialize::<Vec<Instruction>>(x86_64_instrs)?
+                        .into_iter()
+                        .map(|instruction| {
+                            // filter out assemblers by user config
+                            instr_filter_targets(&instruction, config)
+                        })
+                        .filter(|instruction| !instruction.forms.is_empty())
+                        .collect();
 
-        info.riscv_instructions = if config.is_isa_enabled(Arch::RISCV) {
-            let riscv_instrs = include_bytes!("serialized/opcodes/riscv");
-            bincode::deserialize::<Vec<Instruction>>(riscv_instrs)?
-        } else {
-            Vec::new()
-        };
+                populate_name_to_instruction_map(
+                    Arch::X86_64,
+                    x86_64_instructions,
+                    &mut store.names_to_instructions,
+                );
+            }
+            Arch::ARM => {
+                let arm_instrs = include_bytes!("serialized/opcodes/arm");
+                let arm_instructions = bincode::deserialize::<Vec<Instruction>>(arm_instrs)?;
 
-        info.x86_registers = if config.is_isa_enabled(Arch::X86) {
-            let regs_x86 = include_bytes!("serialized/registers/x86");
-            bincode::deserialize(regs_x86)?
-        } else {
-            Vec::new()
-        };
+                populate_name_to_instruction_map(
+                    Arch::ARM,
+                    arm_instructions,
+                    &mut store.names_to_instructions,
+                );
+            }
+            Arch::ARM64 => {
+                let arm64_instrs = include_bytes!("serialized/opcodes/arm64");
+                let arm64_instructions = bincode::deserialize::<Vec<Instruction>>(arm64_instrs)?;
 
-        info.x86_64_registers = if config.is_isa_enabled(Arch::X86_64) {
-            let regs_x86_64 = include_bytes!("serialized/registers/x86_64");
-            bincode::deserialize(regs_x86_64)?
-        } else {
-            Vec::new()
-        };
+                populate_name_to_instruction_map(
+                    Arch::ARM64,
+                    arm64_instructions,
+                    &mut store.names_to_instructions,
+                );
+            }
+            Arch::Z80 => {
+                let z80_instrs = include_bytes!("serialized/opcodes/z80");
+                let z80_instructions = bincode::deserialize::<Vec<Instruction>>(z80_instrs)?;
 
-        info.z80_registers = if config.is_isa_enabled(Arch::Z80) {
-            let regs_z80 = include_bytes!("serialized/registers/z80");
-            bincode::deserialize(regs_z80)?
-        } else {
-            Vec::new()
-        };
+                populate_name_to_instruction_map(
+                    Arch::Z80,
+                    z80_instructions,
+                    &mut store.names_to_instructions,
+                );
+            }
+            Arch::RISCV => {
+                let riscv_instrs = include_bytes!("serialized/opcodes/riscv");
+                let riscv_instructions = bincode::deserialize::<Vec<Instruction>>(riscv_instrs)?;
 
-        info.arm_registers = if config.is_isa_enabled(Arch::ARM) {
-            let regs_arm = include_bytes!("serialized/registers/arm");
-            bincode::deserialize(regs_arm)?
-        } else {
-            Vec::new()
-        };
+                populate_name_to_instruction_map(
+                    Arch::RISCV,
+                    riscv_instructions,
+                    &mut store.names_to_instructions,
+                );
+            }
+        }
 
-        info.arm64_registers = if config.is_isa_enabled(Arch::ARM64) {
-            let regs_arm64 = include_bytes!("serialized/registers/arm64");
-            bincode::deserialize(regs_arm64)?
-        } else {
-            Vec::new()
-        };
+        config
+            .instruction_set
+            .setup_registers(&mut store.names_to_registers);
 
-        info.riscv_registers = if config.is_isa_enabled(Arch::RISCV) {
-            let regs_riscv = include_bytes!("serialized/registers/riscv");
-            bincode::deserialize(regs_riscv)?
-        } else {
-            Vec::new()
-        };
+        config
+            .assembler
+            .setup_directives(&mut store.names_to_directives);
 
-        info.gas_directives = if config.is_assembler_enabled(Assembler::Gas) {
-            let gas_dirs = include_bytes!("serialized/directives/gas");
-            bincode::deserialize(gas_dirs)?
-        } else {
-            Vec::new()
-        };
-
-        info.masm_directives = if config.is_assembler_enabled(Assembler::Masm) {
-            let masm_dirs = include_bytes!("serialized/directives/masm");
-            bincode::deserialize(masm_dirs)?
-        } else {
-            Vec::new()
-        };
-
-        info.nasm_directives = if config.is_assembler_enabled(Assembler::Nasm) {
-            let nasm_dirs = include_bytes!("serialized/directives/nasm");
-            bincode::deserialize(nasm_dirs)?
-        } else {
-            Vec::new()
-        };
-
-        Ok(info)
+        Ok(store)
     }
 
-    fn init_test_store(info: &GlobalInfo) -> GlobalVars<'_> {
-        let mut store = GlobalVars::new();
-
+    fn init_test_store(store: &mut AsmStore) -> &AsmStore {
         let mut x86_cache_path = get_cache_dir().unwrap();
         x86_cache_path.push("x86_instr_docs.html");
         if x86_cache_path.is_file() {
             std::fs::remove_file(&x86_cache_path).unwrap();
         }
-
-        populate_name_to_instruction_map(
-            Arch::X86,
-            &info.x86_instructions,
-            &mut store.names_to_instructions,
-        );
-
-        populate_name_to_instruction_map(
-            Arch::X86_64,
-            &info.x86_64_instructions,
-            &mut store.names_to_instructions,
-        );
-
-        populate_name_to_instruction_map(
-            Arch::ARM,
-            &info.arm_instructions,
-            &mut store.names_to_instructions,
-        );
-
-        populate_name_to_instruction_map(
-            Arch::ARM64,
-            &info.arm64_instructions,
-            &mut store.names_to_instructions,
-        );
-
-        populate_name_to_instruction_map(
-            Arch::RISCV,
-            &info.riscv_instructions,
-            &mut store.names_to_instructions,
-        );
-
-        populate_name_to_instruction_map(
-            Arch::Z80,
-            &info.z80_instructions,
-            &mut store.names_to_instructions,
-        );
-
-        populate_name_to_register_map(
-            Arch::X86,
-            &info.x86_registers,
-            &mut store.names_to_registers,
-        );
-
-        populate_name_to_register_map(
-            Arch::X86_64,
-            &info.x86_64_registers,
-            &mut store.names_to_registers,
-        );
-
-        populate_name_to_register_map(
-            Arch::ARM,
-            &info.arm_registers,
-            &mut store.names_to_registers,
-        );
-
-        populate_name_to_register_map(
-            Arch::ARM64,
-            &info.arm64_registers,
-            &mut store.names_to_registers,
-        );
-
-        populate_name_to_register_map(
-            Arch::RISCV,
-            &info.riscv_registers,
-            &mut store.names_to_registers,
-        );
-
-        populate_name_to_register_map(
-            Arch::Z80,
-            &info.z80_registers,
-            &mut store.names_to_registers,
-        );
-
-        populate_name_to_directive_map(
-            Assembler::Gas,
-            &info.gas_directives,
-            &mut store.names_to_directives,
-        );
-
-        populate_name_to_directive_map(
-            Assembler::Masm,
-            &info.masm_directives,
-            &mut store.names_to_directives,
-        );
-
-        populate_name_to_directive_map(
-            Assembler::Nasm,
-            &info.nasm_directives,
-            &mut store.names_to_directives,
-        );
 
         store.instr_completion_items = get_completes(
             &store.names_to_instructions,
@@ -418,8 +290,8 @@ mod tests {
     }
 
     fn test_hover(source: &str, expected: &str, config: &Config) {
-        let info = init_global_info(config).expect("Failed to load info");
-        let globals = init_test_store(&info);
+        let mut store = init_global_info(config).expect("Failed to load info");
+        let globals = init_test_store(&mut store);
 
         let mut position: Option<Position> = None;
         for (line_num, line) in source.lines().enumerate() {
@@ -514,8 +386,8 @@ mod tests {
         trigger_kind: CompletionTriggerKind,
         trigger_character: Option<String>,
     ) {
-        let info = init_global_info(config).expect("Failed to load info");
-        let globals = init_test_store(&info);
+        let mut store = init_global_info(config).expect("Failed to load info");
+        let globals = init_test_store(&mut store);
 
         let source_code = source.replace("<cursor>", "");
 
@@ -581,7 +453,7 @@ mod tests {
         // so another means of verification should be added here
         assert!(!resp.items.is_empty());
         for comp in &resp.items {
-            assert!(comp.kind == Some(expected_kind));
+            assert_eq!(comp.kind, Some(expected_kind));
         }
     }
 
