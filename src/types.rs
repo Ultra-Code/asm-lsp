@@ -24,8 +24,8 @@ pub struct Instruction {
     pub arch: Option<Arch>,
 }
 
-impl Hoverable for &Instruction {}
-impl Completable for &Instruction {}
+impl Hoverable for Instruction {}
+impl Completable for Instruction {}
 
 impl Default for Instruction {
     fn default() -> Self {
@@ -405,8 +405,8 @@ pub struct Directive {
     pub assembler: Option<Assembler>,
 }
 
-impl Hoverable for &Directive {}
-impl Completable for &Directive {}
+impl Hoverable for Directive {}
+impl Completable for Directive {}
 
 impl Default for Directive {
     fn default() -> Self {
@@ -536,8 +536,8 @@ pub struct Register {
     pub url: Option<String>,
 }
 
-impl Hoverable for &Register {}
-impl Completable for &Register {}
+impl Hoverable for Register {}
+impl Completable for Register {}
 
 impl Default for Register {
     fn default() -> Self {
@@ -640,21 +640,19 @@ impl<'own> Register {
 
 // helper structs, types and functions ------------------------------------------------------------
 #[derive(Debug, Clone, Default)]
-pub struct NameToInfoMaps<'a> {
-    pub instructions: NameToInstructionMap<'a>,
-    pub registers: NameToRegisterMap<'a>,
-    pub directives: NameToDirectiveMap<'a>,
+pub struct NameToInfoMaps {
+    pub instructions: NameToInstructionMap,
+    pub registers: NameToRegisterMap,
+    pub directives: NameToDirectiveMap,
 }
 
-pub type NameToInstructionMap<'instruction> =
-    HashMap<(Arch, &'instruction str), &'instruction Instruction>;
+pub type NameToInstructionMap = HashMap<(Arch, String), Instruction>;
 
-pub type NameToRegisterMap<'register> = HashMap<(Arch, &'register str), &'register Register>;
+pub type NameToRegisterMap = HashMap<(Arch, String), Register>;
 
-pub type NameToDirectiveMap<'directive> =
-    HashMap<(Assembler, &'directive str), &'directive Directive>;
+pub type NameToDirectiveMap = HashMap<(Assembler, String), Directive>;
 
-pub trait Hoverable: Display + Clone + Copy {}
+pub trait Hoverable: Display + Clone {}
 pub trait Completable: Display {}
 pub trait ArchOrAssembler: Clone + Copy {}
 
@@ -851,6 +849,12 @@ impl Default for RootConfig {
     }
 }
 
+#[derive(Debug)]
+pub struct EffectiveAssembersAndArch {
+    pub archs: Vec<Arch>,
+    pub assemblers: Vec<Assembler>,
+}
+
 impl RootConfig {
     /// Returns the `Project` associated with `uri`
     ///
@@ -920,6 +924,26 @@ impl RootConfig {
     }
 
     #[must_use]
+    pub fn effective_config(&self) -> EffectiveAssembersAndArch {
+        let mut asm_set = std::collections::HashSet::<Assembler>::new();
+        let mut arch_set = std::collections::HashSet::<Arch>::new();
+        if let Some(ref projects) = self.projects {
+            for project in projects {
+                asm_set.insert(project.config.assembler);
+                arch_set.insert(project.config.instruction_set);
+            }
+        }
+        if let Some(ref root) = self.default_config {
+            asm_set.insert(root.assembler);
+            arch_set.insert(root.instruction_set);
+        }
+        EffectiveAssembersAndArch {
+            archs: arch_set.into_iter().collect(),
+            assemblers: asm_set.into_iter().collect(),
+        }
+    }
+
+    #[must_use]
     pub fn is_isa_enabled(&self, isa: Arch) -> bool {
         if let Some(ref root) = self.default_config {
             if root.is_isa_enabled(isa) {
@@ -965,9 +989,28 @@ pub struct ProjectConfig {
     pub path: PathBuf,
     // Means to override compilation behavior for this project. The input file
     // should not be included
-    pub compile_cmd: Option<String>,
+    #[serde(flatten)]
+    pub compile_flags_txt: Option<CompileFlags>,
     #[serde(flatten)]
     pub config: Config,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CompileFlags {
+    pub compiler: String,
+    pub args: Vec<String>,
+}
+
+impl CompileFlags {
+    #[must_use]
+    pub fn as_string(&self) -> String {
+        let mut compile_flags_txt = String::new();
+        compile_flags_txt.push_str(&self.compiler);
+        for arg in &self.args {
+            compile_flags_txt.push_str(arg);
+        }
+        compile_flags_txt
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

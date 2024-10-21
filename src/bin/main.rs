@@ -10,7 +10,7 @@ use asm_lsp::handle::{
     handle_references_request, handle_signature_help_request,
 };
 use asm_lsp::{
-    get_comp_cmd_for_path, get_compile_cmds, get_completes, get_include_dirs, get_root_config,
+    get_compile_cmd_for_path, get_compile_cmds, get_completes, get_include_dirs, get_root_config,
     populate_name_to_directive_map, populate_name_to_instruction_map,
     populate_name_to_register_map, Arch, Assembler, Instruction, NameToInfoMaps, RootConfig,
     TreeStore,
@@ -123,245 +123,232 @@ pub fn main() -> Result<()> {
             config.set_client(LspClient::Helix);
         }
     }
+    let effective_config = config.effective_config();
+    info!("the effective config is {effective_config:#?}");
 
+    // create a map of &Instruction_name -> &Instruction - Use that in user
+    // queries
+    // The Instruction(s) themselves are stored in a vector and we only keep
+    // references to the former map
     let mut names_to_info = NameToInfoMaps::default();
-    // create a map of &Instruction_name -> &Instruction - Use that in user queries
-    // The Instruction(s) themselves are stored in a vector and we only keep references to the
-    // former map
-    let x86_instructions = if config.is_isa_enabled(Arch::X86) {
-        let start = std::time::Instant::now();
-        let x86_instrs = include_bytes!("../../docs_store/opcodes/serialized/x86");
-        let instrs = bincode::deserialize::<Vec<Instruction>>(x86_instrs)?;
-        info!(
-            "x86 instruction set loaded in {}ms",
-            start.elapsed().as_millis()
-        );
-        instrs
-    } else {
-        Vec::new()
-    };
 
-    let x86_64_instructions = if config.is_isa_enabled(Arch::X86_64) {
-        let start = std::time::Instant::now();
-        let x86_64_instrs = include_bytes!("../../docs_store/opcodes/serialized/x86_64");
-        let instrs = bincode::deserialize::<Vec<Instruction>>(x86_64_instrs)?;
-        info!(
-            "x86-64 instruction set loaded in {}ms",
-            start.elapsed().as_millis()
-        );
-        instrs
-    } else {
-        Vec::new()
-    };
+    for assembler in effective_config.assemblers {
+        match assembler {
+            Assembler::Gas => {
+                let start = std::time::Instant::now();
+                let gas_dirs = include_bytes!("../../docs_store/directives/serialized/gas");
+                let gas_directives = bincode::deserialize(gas_dirs)?;
+                info!(
+                    "Gas directive set loaded in {}ms",
+                    start.elapsed().as_millis()
+                );
 
-    let z80_instructions = if config.is_isa_enabled(Arch::Z80) {
-        let start = std::time::Instant::now();
-        let z80_instrs = include_bytes!("../../docs_store/opcodes/serialized/z80");
-        let instrs = bincode::deserialize::<Vec<Instruction>>(z80_instrs)?;
-        info!(
-            "z80 instruction set loaded in {}ms",
-            start.elapsed().as_millis()
-        );
-        instrs
-    } else {
-        Vec::new()
-    };
+                populate_name_to_directive_map(
+                    Assembler::Gas,
+                    gas_directives,
+                    &mut names_to_info.directives,
+                );
+            }
+            Assembler::Masm => {
+                let start = std::time::Instant::now();
+                let masm_dirs = include_bytes!("../../docs_store/directives/serialized/masm");
+                let masm_directives = bincode::deserialize(masm_dirs)?;
+                info!(
+                    "MASM directive set loaded in {}ms",
+                    start.elapsed().as_millis()
+                );
 
-    let arm_instructions = if config.is_isa_enabled(Arch::ARM) {
-        let start = std::time::Instant::now();
-        let arm_instrs = include_bytes!("../../docs_store/opcodes/serialized/arm");
-        // NOTE: No need to filter these instructions by assembler like we do for
-        // x86/x86_64, as our ARM docs don't contain any assembler-specific information (yet)
-        let instrs = bincode::deserialize::<Vec<Instruction>>(arm_instrs)?;
-        info!(
-            "arm instruction set loaded in {}ms",
-            start.elapsed().as_millis()
-        );
-        instrs
-    } else {
-        Vec::new()
-    };
+                populate_name_to_directive_map(
+                    Assembler::Masm,
+                    masm_directives,
+                    &mut names_to_info.directives,
+                );
+            }
+            Assembler::Nasm => {
+                let start = std::time::Instant::now();
+                let nasm_dirs = include_bytes!("../../docs_store/directives/serialized/nasm");
+                let nasm_directives = bincode::deserialize(nasm_dirs)?;
+                info!(
+                    "Nasm directive set loaded in {}ms",
+                    start.elapsed().as_millis()
+                );
 
-    let riscv_instructions = if config.is_isa_enabled(Arch::RISCV) {
-        let start = std::time::Instant::now();
-        let riscv_instrs = include_bytes!("../../docs_store/opcodes/serialized/riscv");
-        // NOTE: No need to filter these instructions by assembler like we do for
-        // x86/x86_64, as our RISCV docs don't contain any assembler-specific information (yet)
-        let instrs = bincode::deserialize::<Vec<Instruction>>(riscv_instrs)?;
-        info!(
-            "riscv instruction set loaded in {}ms",
-            start.elapsed().as_millis()
-        );
-        instrs
-    } else {
-        Vec::new()
-    };
+                populate_name_to_directive_map(
+                    Assembler::Nasm,
+                    nasm_directives,
+                    &mut names_to_info.directives,
+                );
+            }
+            //TODO: which assembler is none :)
+            Assembler::Go | Assembler::Z80 | Assembler::None => {}
+        }
+    }
 
-    populate_name_to_instruction_map(
-        Arch::X86,
-        &x86_instructions,
-        &mut names_to_info.instructions,
-    );
-    populate_name_to_instruction_map(
-        Arch::X86_64,
-        &x86_64_instructions,
-        &mut names_to_info.instructions,
-    );
-    populate_name_to_instruction_map(
-        Arch::Z80,
-        &z80_instructions,
-        &mut names_to_info.instructions,
-    );
-    populate_name_to_instruction_map(
-        Arch::ARM,
-        &arm_instructions,
-        &mut names_to_info.instructions,
-    );
-    populate_name_to_instruction_map(
-        Arch::RISCV,
-        &riscv_instructions,
-        &mut names_to_info.instructions,
-    );
+    for instruction_set_arch in effective_config.archs {
+        match instruction_set_arch {
+            Arch::X86 => {
+                let start = std::time::Instant::now();
+                let x86_instrs = include_bytes!("../../docs_store/opcodes/serialized/x86");
+                let x86_instructions = bincode::deserialize::<Vec<Instruction>>(x86_instrs)?;
+                info!(
+                    "x86 instruction set loaded in {}ms",
+                    start.elapsed().as_millis()
+                );
 
-    // create a map of &Register_name -> &Register - Use that in user queries
-    // The Register(s) themselves are stored in a vector and we only keep references to the
-    // former map
-    let x86_registers = if config.is_isa_enabled(Arch::X86) {
-        let start = std::time::Instant::now();
-        let regs_x86 = include_bytes!("../../docs_store/registers/serialized/x86");
-        let regs = bincode::deserialize(regs_x86)?;
-        info!(
-            "x86 register set loaded in {}ms",
-            start.elapsed().as_millis()
-        );
-        regs
-    } else {
-        Vec::new()
-    };
+                populate_name_to_instruction_map(
+                    Arch::X86,
+                    x86_instructions,
+                    &mut names_to_info.instructions,
+                );
 
-    let x86_64_registers = if config.is_isa_enabled(Arch::X86_64) {
-        let start = std::time::Instant::now();
-        let regs_x86_64 = include_bytes!("../../docs_store/registers/serialized/x86_64");
-        let regs = bincode::deserialize(regs_x86_64)?;
-        info!(
-            "x86-64 register set loaded in {}ms",
-            start.elapsed().as_millis()
-        );
-        regs
-    } else {
-        Vec::new()
-    };
+                // create a map of &Register_name -> &Register - Use that in user queries
+                // The Register(s) themselves are stored in a vector and we only keep references to the
+                // former map
+                let start = std::time::Instant::now();
+                let regs_x86 = include_bytes!("../../docs_store/registers/serialized/x86");
+                let x86_registers = bincode::deserialize(regs_x86)?;
+                info!(
+                    "x86 register set loaded in {}ms",
+                    start.elapsed().as_millis()
+                );
 
-    let z80_registers = if config.is_isa_enabled(Arch::Z80) {
-        let start = std::time::Instant::now();
-        let regs_z80 = include_bytes!("../../docs_store/registers/serialized/z80");
-        let regs = bincode::deserialize(regs_z80)?;
-        info!(
-            "z80 register set loaded in {}ms",
-            start.elapsed().as_millis()
-        );
-        regs
-    } else {
-        Vec::new()
-    };
+                populate_name_to_register_map(
+                    Arch::X86,
+                    x86_registers,
+                    &mut names_to_info.registers,
+                );
+            }
+            Arch::X86_64 => {
+                let start = std::time::Instant::now();
+                let x86_64_instrs = include_bytes!("../../docs_store/opcodes/serialized/x86_64");
+                let x86_64_instructions = bincode::deserialize::<Vec<Instruction>>(x86_64_instrs)?;
+                info!(
+                    "x86-64 instruction set loaded in {}ms",
+                    start.elapsed().as_millis()
+                );
 
-    let arm_registers = if config.is_isa_enabled(Arch::ARM) {
-        let start = std::time::Instant::now();
-        let regs_arm = include_bytes!("../../docs_store/registers/serialized/arm");
-        let regs = bincode::deserialize(regs_arm)?;
-        info!(
-            "arm register set loaded in {}ms",
-            start.elapsed().as_millis()
-        );
-        regs
-    } else {
-        Vec::new()
-    };
+                populate_name_to_instruction_map(
+                    Arch::X86_64,
+                    x86_64_instructions,
+                    &mut names_to_info.instructions,
+                );
 
-    let riscv_registers = if config.is_isa_enabled(Arch::RISCV) {
-        let start = std::time::Instant::now();
-        let regs_riscv = include_bytes!("../../docs_store/registers/serialized/riscv");
-        let regs = bincode::deserialize(regs_riscv)?;
-        info!(
-            "riscv register set loaded in {}ms",
-            start.elapsed().as_millis()
-        );
-        regs
-    } else {
-        Vec::new()
-    };
+                let start = std::time::Instant::now();
+                let regs_x86_64 = include_bytes!("../../docs_store/registers/serialized/x86_64");
+                let x86_64_registers = bincode::deserialize(regs_x86_64)?;
+                info!(
+                    "x86-64 register set loaded in {}ms",
+                    start.elapsed().as_millis()
+                );
 
-    populate_name_to_register_map(Arch::X86, &x86_registers, &mut names_to_info.registers);
-    populate_name_to_register_map(
-        Arch::X86_64,
-        &x86_64_registers,
-        &mut names_to_info.registers,
-    );
-    populate_name_to_register_map(Arch::Z80, &z80_registers, &mut names_to_info.registers);
-    populate_name_to_register_map(Arch::ARM, &arm_registers, &mut names_to_info.registers);
-    populate_name_to_register_map(Arch::RISCV, &riscv_registers, &mut names_to_info.registers);
+                populate_name_to_register_map(
+                    Arch::X86_64,
+                    x86_64_registers,
+                    &mut names_to_info.registers,
+                );
+            }
+            Arch::ARM => {
+                let start = std::time::Instant::now();
+                let arm_instrs = include_bytes!("../../docs_store/opcodes/serialized/arm");
+                // NOTE: No need to filter these instructions by assembler like we do for
+                // x86/x86_64, as our ARM docs don't contain any assembler-specific information (yet)
+                let arm_instructions = bincode::deserialize::<Vec<Instruction>>(arm_instrs)?;
+                info!(
+                    "arm instruction set loaded in {}ms",
+                    start.elapsed().as_millis()
+                );
 
-    let gas_directives = if config.is_assembler_enabled(Assembler::Gas) {
-        let start = std::time::Instant::now();
-        let gas_dirs = include_bytes!("../../docs_store/directives/serialized/gas");
-        let dirs = bincode::deserialize(gas_dirs)?;
-        info!(
-            "Gas directive set loaded in {}ms",
-            start.elapsed().as_millis()
-        );
-        dirs
-    } else {
-        Vec::new()
-    };
+                populate_name_to_instruction_map(
+                    Arch::ARM,
+                    arm_instructions,
+                    &mut names_to_info.instructions,
+                );
 
-    let masm_directives = if config.is_assembler_enabled(Assembler::Masm) {
-        let start = std::time::Instant::now();
-        let masm_dirs = include_bytes!("../../docs_store/directives/serialized/masm");
-        let dirs = bincode::deserialize(masm_dirs)?;
-        info!(
-            "MASM directive set loaded in {}ms",
-            start.elapsed().as_millis()
-        );
-        dirs
-    } else {
-        Vec::new()
-    };
+                let start = std::time::Instant::now();
+                let regs_arm = include_bytes!("../../docs_store/registers/serialized/arm");
+                let arm_registers = bincode::deserialize(regs_arm)?;
+                info!(
+                    "arm register set loaded in {}ms",
+                    start.elapsed().as_millis()
+                );
 
-    let nasm_directives = if config.is_assembler_enabled(Assembler::Nasm) {
-        let start = std::time::Instant::now();
-        let nasm_dirs = include_bytes!("../../docs_store/directives/serialized/nasm");
-        let dirs = bincode::deserialize(nasm_dirs)?;
-        info!(
-            "Nasm directive set loaded in {}ms",
-            start.elapsed().as_millis()
-        );
-        dirs
-    } else {
-        Vec::new()
-    };
+                populate_name_to_register_map(
+                    Arch::ARM,
+                    arm_registers,
+                    &mut names_to_info.registers,
+                );
+            }
+            Arch::RISCV => {
+                let start = std::time::Instant::now();
+                let riscv_instrs = include_bytes!("../../docs_store/opcodes/serialized/riscv");
+                // NOTE: No need to filter these instructions by assembler like we do for
+                // x86/x86_64, as our RISCV docs don't contain any assembler-specific information (yet)
+                let riscv_instructions = bincode::deserialize::<Vec<Instruction>>(riscv_instrs)?;
+                info!(
+                    "riscv instruction set loaded in {}ms",
+                    start.elapsed().as_millis()
+                );
 
-    populate_name_to_directive_map(
-        Assembler::Gas,
-        &gas_directives,
-        &mut names_to_info.directives,
-    );
-    populate_name_to_directive_map(
-        Assembler::Masm,
-        &masm_directives,
-        &mut names_to_info.directives,
-    );
-    populate_name_to_directive_map(
-        Assembler::Nasm,
-        &nasm_directives,
-        &mut names_to_info.directives,
-    );
+                populate_name_to_instruction_map(
+                    Arch::RISCV,
+                    riscv_instructions,
+                    &mut names_to_info.instructions,
+                );
+
+                let start = std::time::Instant::now();
+                let regs_riscv = include_bytes!("../../docs_store/registers/serialized/riscv");
+                let riscv_registers = bincode::deserialize(regs_riscv)?;
+                info!(
+                    "riscv register set loaded in {}ms",
+                    start.elapsed().as_millis()
+                );
+
+                populate_name_to_register_map(
+                    Arch::RISCV,
+                    riscv_registers,
+                    &mut names_to_info.registers,
+                );
+            }
+            Arch::Z80 => {
+                let start = std::time::Instant::now();
+                let z80_instrs = include_bytes!("../../docs_store/opcodes/serialized/z80");
+                let z80_instructions = bincode::deserialize::<Vec<Instruction>>(z80_instrs)?;
+                info!(
+                    "z80 instruction set loaded in {}ms",
+                    start.elapsed().as_millis()
+                );
+
+                populate_name_to_instruction_map(
+                    Arch::Z80,
+                    z80_instructions,
+                    &mut names_to_info.instructions,
+                );
+
+                let start = std::time::Instant::now();
+                let regs_z80 = include_bytes!("../../docs_store/registers/serialized/z80");
+                let z80_registers = bincode::deserialize(regs_z80)?;
+                info!(
+                    "z80 register set loaded in {}ms",
+                    start.elapsed().as_millis()
+                );
+                populate_name_to_register_map(
+                    Arch::Z80,
+                    z80_registers,
+                    &mut names_to_info.registers,
+                );
+            }
+            Arch::X86_AND_X86_64 | Arch::None => {}
+        }
+    }
 
     let instr_completion_items = get_completes(
         &names_to_info.instructions,
         Some(CompletionItemKind::OPERATOR),
     );
+
     let reg_completion_items =
         get_completes(&names_to_info.registers, Some(CompletionItemKind::VARIABLE));
+
     let directive_completion_items = get_completes(
         &names_to_info.directives,
         Some(CompletionItemKind::OPERATOR),
@@ -501,7 +488,7 @@ fn main_loop(
                 {
                     let project_config = config.get_config(&params.text_document.uri);
                     let cmp_cmds = if let Some(cmd) =
-                        get_comp_cmd_for_path(config, &params.text_document.uri)
+                        get_compile_cmd_for_path(config, &params.text_document.uri)
                     {
                         // If the user provided a compiler invocation command in their config
                         // for the project config covering this file, use it
@@ -563,7 +550,7 @@ fn main_loop(
                     // Ok to unwrap, this should never be `None`
                     if project_config.opts.as_ref().unwrap().diagnostics.unwrap() {
                         let cmp_cmds = if let Some(cmd) =
-                            get_comp_cmd_for_path(config, &params.text_document.uri)
+                            get_compile_cmd_for_path(config, &params.text_document.uri)
                         {
                             // If the user provided a compiler invocation command in their config
                             // for the project config covering this file, use it
