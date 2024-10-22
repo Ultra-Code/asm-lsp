@@ -124,7 +124,6 @@ pub fn main() -> Result<()> {
         }
     }
     let effective_config = config.effective_config();
-    info!("the effective config is {effective_config:#?}");
 
     // create a map of &Instruction_name -> &Instruction - Use that in user
     // queries
@@ -497,6 +496,7 @@ fn main_loop(
                         // Otherwise pass the default compile commands object
                         compile_cmds
                     };
+
                     // Ok to unwrap, this should never be `None`
                     if project_config.opts.as_ref().unwrap().diagnostics.unwrap() {
                         handle_diagnostics(

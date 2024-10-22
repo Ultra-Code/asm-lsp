@@ -994,30 +994,8 @@ pub struct ProjectConfig {
     // path to a directory or source file on which this config applies
     // can be relative to the server's root directory, or absolute
     pub path: PathBuf,
-    // Means to override compilation behavior for this project. The input file
-    // should not be included
-    #[serde(flatten)]
-    pub compile_flags_txt: Option<CompileFlags>,
     #[serde(flatten)]
     pub config: Config,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct CompileFlags {
-    pub compiler: String,
-    pub args: Vec<String>,
-}
-
-impl CompileFlags {
-    #[must_use]
-    pub fn as_string(&self) -> String {
-        let mut compile_flags_txt = String::new();
-        compile_flags_txt.push_str(&self.compiler);
-        for arg in &self.args {
-            compile_flags_txt.push_str(arg);
-        }
-        compile_flags_txt
-    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -1084,6 +1062,9 @@ impl Config {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ConfigOptions {
+    // Means to override compilation behavior for this project. The input file
+    // should not be included
+    pub compile_flags_txt: Option<Vec<String>>,
     // Specify compiler to generate diagnostics via `compile_flags.txt`
     pub compiler: Option<String>,
     // Turn diagnostics feature on/off
@@ -1095,6 +1076,7 @@ pub struct ConfigOptions {
 impl Default for ConfigOptions {
     fn default() -> Self {
         Self {
+            compile_flags_txt: None,
             compiler: None,
             diagnostics: Some(true),
             default_diagnostics: Some(true),
@@ -1105,6 +1087,7 @@ impl Default for ConfigOptions {
 impl ConfigOptions {
     const fn empty() -> Self {
         Self {
+            compile_flags_txt: None,
             compiler: None,
             diagnostics: Some(false),
             default_diagnostics: Some(false),

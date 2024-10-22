@@ -366,35 +366,54 @@ pub fn get_compile_cmd_for_path(config: &RootConfig, req_uri: &Uri) -> Option<Co
     // if the path is within a project configuration and that project specifies
     // a compiler invocation, use it
     if let Some(project) = config.get_project(&request_path) {
-        if let Some(ref cmd) = project.compile_flags_txt {
-            info!("Used config compile command!");
-            let args = {
-                let mut user_cmds: Vec<String> = vec![];
-                user_cmds.push(cmd.as_string());
-                if let Some(path) = request_path.to_str() {
-                    // append the request path as the last compiler argument
-                    user_cmds.push(path.to_string());
-                    //TODO: not been run find out why
-                    info!("Compile flags for project {cmd:#?}");
-                }
-                user_cmds
-            };
-            // let directory = if project.path.is_dir() {
-            //     project.path.clone()
-            // } else {
-            //     project
-            //         .path
-            //         .parent()
-            //         .map_or(PathBuf::new(), ToOwned::to_owned)
-            // };
-            return Some(CompileCommand {
-                file: SourceFile::File(request_path.clone()),
-                directory: PathBuf::new(),
-                arguments: Some(CompileArgs::Arguments(args)),
-                command: None,
-                output: None,
-            });
-        }
+        return project.config.get_compiler().map_or_else(
+            || {
+                Some(CompileCommand {
+                    file: SourceFile::File(request_path.clone()),
+                    directory: PathBuf::new(),
+                    arguments: Some(CompileArgs::Arguments(vec![])),
+                    command: None,
+                    output: None,
+                })
+            },
+            |compiler| {
+                project.config.opts.as_ref().map_or_else(
+                    || {
+                        Some(CompileCommand {
+                            file: SourceFile::File(request_path.clone()),
+                            directory: PathBuf::new(),
+                            arguments: Some(CompileArgs::Arguments(vec![compiler.to_owned()])),
+                            command: None,
+                            output: None,
+                        })
+                    },
+                    |opts| {
+                        let compiler_with_args = {
+                            opts.compile_flags_txt.as_ref().map_or_else(
+                                || vec![],
+                                |project_compile_flags| {
+                                    let mut compile_cmd = vec![];
+                                    compile_cmd.push(compiler.to_owned());
+                                    compile_cmd.extend(project_compile_flags.to_owned());
+                                    if let Some(path) = request_path.to_str() {
+                                        // append the request path as the last compiler argument
+                                        compile_cmd.push(path.to_string());
+                                    }
+                                    compile_cmd
+                                },
+                            )
+                        };
+                        Some(CompileCommand {
+                            file: SourceFile::File(request_path.clone()),
+                            directory: PathBuf::new(),
+                            arguments: Some(CompileArgs::Arguments(compiler_with_args)),
+                            command: None,
+                            output: None,
+                        })
+                    },
+                )
+            },
+        );
     }
 
     None
