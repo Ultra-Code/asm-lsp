@@ -1701,6 +1701,7 @@ pub fn get_root_config(params: &InitializeParams) -> RootConfig {
     } else {
         // provide a default empty configuration for sub-directories
         // not specified in `projects`
+        // TODO: maybe default_config should be default not empty
         config.default_config = Some(Config::empty());
     }
 

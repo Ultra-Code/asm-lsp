@@ -1,17 +1,19 @@
 use std::{
     collections::{BTreeMap, HashMap},
-    fmt::Display,
+    fmt::{self, Display},
     path::PathBuf,
     str::FromStr,
 };
 
 use log::info;
 use lsp_types::Uri;
-use serde::{Deserialize, Serialize};
+use serde::de::{self, Deserializer, MapAccess, Visitor};
+use serde::ser::SerializeMap;
+use serde::{Deserialize, Serialize, Serializer};
 use strum_macros::{AsRefStr, Display, EnumString};
 use tree_sitter::{Parser, Tree};
 
-// Instruction ------------------------------------------------------------------------------------
+// Instruction
 #[derive(Debug, Clone, Eq, PartialEq, Hash, Serialize, Deserialize)]
 pub struct Instruction {
     pub name: String,
@@ -154,7 +156,7 @@ impl<'own> Instruction {
     }
 }
 
-// InstructionForm --------------------------------------------------------------------------------
+// InstructionForm
 #[derive(Default, Eq, PartialEq, Hash, Debug, Clone, Serialize, Deserialize)]
 pub struct InstructionForm {
     // --- Gas/Go-Specific Information ---
@@ -255,7 +257,7 @@ impl std::fmt::Display for InstructionForm {
     }
 }
 
-// InstructionAlias --------------------------------------------------------------------------------
+// InstructionAlias
 #[derive(Default, Eq, PartialEq, Hash, Debug, Clone, Serialize, Deserialize)]
 pub struct InstructionAlias {
     pub title: String,
@@ -393,7 +395,7 @@ impl Display for Z80Timing {
     }
 }
 
-// Directive ------------------------------------------------------------------------------------
+// Directive
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct Directive {
     pub name: String,
@@ -523,7 +525,7 @@ impl<'own> Directive {
     }
 }
 
-// Register ---------------------------------------------------------------------------------------
+// Register
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct Register {
     pub name: String,
@@ -638,7 +640,7 @@ impl<'own> Register {
     }
 }
 
-// helper structs, types and functions ------------------------------------------------------------
+// helper structs, types and functions
 #[derive(Debug, Clone, Default)]
 pub struct NameToInfoMaps {
     pub instructions: NameToInstructionMap,
@@ -669,32 +671,97 @@ pub enum MMXMode {
 }
 
 #[allow(non_camel_case_types)]
-#[derive(
-    Debug, Default, Hash, PartialEq, Eq, Clone, Copy, EnumString, AsRefStr, Serialize, Deserialize,
-)]
+#[derive(Debug, Default, Hash, PartialEq, Eq, Clone, Copy, EnumString, AsRefStr)]
 pub enum Arch {
     #[default]
     #[strum(serialize = "x86")]
-    #[serde(rename = "x86")]
     X86,
     #[strum(serialize = "x86-64")]
-    #[serde(rename = "x86-64")]
     X86_64,
     /// enables both `Arch::X86` and `Arch::X86_64`
     #[strum(serialize = "x86/x86-64")]
-    #[serde(rename = "x86/x86-64")]
     X86_AND_X86_64,
     #[strum(serialize = "arm")]
-    #[serde(rename = "arm")]
     ARM,
     #[strum(serialize = "riscv")]
-    #[serde(rename = "riscv")]
     RISCV,
     #[strum(serialize = "z80")]
-    #[serde(rename = "z80")]
     Z80,
-    #[serde(skip)]
-    None,
+}
+
+// Custom serialization for InstructionSet to ensure variant are
+// serialized as .eg RISC -> {risc = true} in toml
+impl Serialize for Arch {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        let mut map = serializer.serialize_map(Some(1))?;
+        match self {
+            Self::ARM => map.serialize_entry("arm", &true)?,
+            Self::X86 => map.serialize_entry("x86", &true)?,
+            Self::X86_64 => map.serialize_entry("x86_64", &true)?,
+            Self::X86_AND_X86_64 => map.serialize_entry("x86_and_x86_64", &true)?,
+            Self::RISCV => map.serialize_entry("riscv", &true)?,
+            Self::Z80 => map.serialize_entry("z80", &true)?,
+        }
+        map.end()
+    }
+}
+
+// Custom deserialization for InstructionSet to ensure deserializing toml to
+// variant procedes like so .eg RISCV <- {riscv = true}
+impl<'de> Deserialize<'de> for Arch {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        struct ArchVisitor;
+
+        impl<'de> Visitor<'de> for ArchVisitor {
+            type Value = Arch;
+
+            fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
+                formatter.write_str("a map with one key for the instruction set .eg instruction_set = {aarch64 = true}")
+            }
+
+            fn visit_map<V>(self, mut map: V) -> Result<Arch, V::Error>
+            where
+                V: MapAccess<'de>,
+            {
+                // Count the number of entries
+                let mut count = 0;
+                let mut result = None;
+
+                while let Some((key, _)) = map.next_entry::<String, bool>()? {
+                    count += 1;
+                    if count > 1 {
+                        return Err(de::Error::custom(
+                            "Only one instruction set option can be specified",
+                        ));
+                    }
+                    match key.as_str() {
+                        "arm" => result = Some(Arch::ARM),
+                        "x86" => result = Some(Arch::X86),
+                        "x86_64" => result = Some(Arch::X86_64),
+                        "x86_and_x86_64" => result = Some(Arch::X86_AND_X86_64),
+                        "riscv" => result = Some(Arch::RISCV),
+                        "z80" => result = Some(Arch::Z80),
+                        _ => {
+                            return Err(de::Error::unknown_variant(
+                                &key,
+                                &["arm", "x86", "x86_64", "x86_and_x86_64", "riscv", "z80"],
+                            ))
+                        }
+                    }
+                }
+
+                result.ok_or_else(|| de::Error::custom("Instruction set option is required"))
+            }
+        }
+
+        deserializer.deserialize_map(ArchVisitor)
+    }
 }
 
 impl ArchOrAssembler for Arch {}
@@ -708,26 +775,12 @@ impl std::fmt::Display for Arch {
             Self::ARM => write!(f, "arm")?,
             Self::Z80 => write!(f, "z80")?,
             Self::RISCV => write!(f, "riscv")?,
-            Self::None => write!(f, "None")?,
         }
         Ok(())
     }
 }
 
-#[derive(
-    Debug,
-    Display,
-    Default,
-    Hash,
-    PartialEq,
-    Eq,
-    Clone,
-    Copy,
-    EnumString,
-    AsRefStr,
-    Serialize,
-    Deserialize,
-)]
+#[derive(Debug, Display, Default, Hash, PartialEq, Eq, Clone, Copy, EnumString, AsRefStr)]
 pub enum Assembler {
     #[default]
     #[strum(serialize = "gas")]
@@ -740,8 +793,80 @@ pub enum Assembler {
     Nasm,
     #[strum(serialize = "z80")]
     Z80,
-    #[serde(skip)]
-    None,
+}
+
+// Custom serialization to allow an Assember variant to be serialized in a
+// toml table .ie Go -> { go = true }
+impl Serialize for Assembler {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        let mut map = serializer.serialize_map(Some(1))?;
+        match self {
+            Self::Gas => map.serialize_entry("gas", &true)?,
+            Self::Nasm => map.serialize_entry("nasm", &true)?,
+            Self::Masm => map.serialize_entry("masm", &true)?,
+            Self::Go => map.serialize_entry("go", &true)?,
+            Self::Z80 => map.serialize_entry("z80", &true)?,
+        }
+        map.end()
+    }
+}
+
+// Custom deserialization to allow an Assember variant to be set based on
+// a toml table .ie Go <- { go = true }
+impl<'de> Deserialize<'de> for Assembler {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        struct AssemblerVisitor;
+
+        impl<'de> Visitor<'de> for AssemblerVisitor {
+            type Value = Assembler;
+
+            fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
+                formatter
+                    .write_str("a map with one key for the assembler .eg assembler = {gas = true}")
+            }
+
+            fn visit_map<V>(self, mut map: V) -> Result<Assembler, V::Error>
+            where
+                V: MapAccess<'de>,
+            {
+                // Count the number of entries
+                let mut count = 0;
+                let mut result = None;
+
+                while let Some((key, _)) = map.next_entry::<String, bool>()? {
+                    count += 1;
+                    if count > 1 {
+                        return Err(de::Error::custom(
+                            "Only one assembler option can be specified",
+                        ));
+                    }
+                    match key.as_str() {
+                        "gas" => result = Some(Assembler::Gas),
+                        "nasm" => result = Some(Assembler::Nasm),
+                        "masm" => result = Some(Assembler::Masm),
+                        "go" => result = Some(Assembler::Go),
+                        "z80" => result = Some(Assembler::Z80),
+                        _ => {
+                            return Err(de::Error::unknown_variant(
+                                &key,
+                                &["gas", "nasm", "masm", "go", "z80"],
+                            ))
+                        }
+                    }
+                }
+
+                result.ok_or_else(|| de::Error::custom("Assembler option is required"))
+            }
+        }
+
+        deserializer.deserialize_map(AssemblerVisitor)
+    }
 }
 
 impl ArchOrAssembler for Assembler {}
@@ -1025,8 +1150,8 @@ impl Config {
     pub const fn empty() -> Self {
         Self {
             version: None,
-            assembler: Assembler::None,
-            instruction_set: Arch::None,
+            assembler: Assembler::Gas,
+            instruction_set: Arch::X86_64,
             opts: Some(ConfigOptions::empty()),
             client: None,
         }
@@ -1100,7 +1225,7 @@ pub enum LspClient {
     Helix,
 }
 
-// Instruction Set Architecture -------------------------------------------------------------------
+// Instruction Set Architecture
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash, EnumString, AsRefStr, Serialize, Deserialize)]
 pub enum ISA {
     #[strum(serialize = "RAO-INT")]
@@ -1225,7 +1350,7 @@ pub enum ISA {
     A64,
 }
 
-// Operand ----------------------------------------------------------------------------------------
+// Operand
 #[derive(Debug, PartialEq, Eq, Hash, Clone, Serialize, Deserialize)]
 pub struct Operand {
     pub type_: OperandType,
@@ -1365,7 +1490,7 @@ pub enum OperandType {
     tmm,
 }
 
-// lsp types --------------------------------------------------------------------------------------
+// lsp types
 
 /// Represents a text cursor between characters, pointing at the next character in the buffer.
 pub type Column = usize;

@@ -48,12 +48,13 @@ use lsp_textdocument::TextDocuments;
 /// Panics if JSON serialization of the server capabilities fails
 #[allow(clippy::too_many_lines)]
 pub fn main() -> Result<()> {
-    // initialisation -----------------------------------------------------------------------------
+    // Initialisation
+
     // Set up logging. Because `stdio_transport` gets a lock on stdout and stdin, we must have our
     // logging only write out to stderr.
     flexi_logger::Logger::try_with_str("info")?.start()?;
 
-    // LSP server initialisation ------------------------------------------------------------------
+    // LSP Server Initialisation
     info!("Starting asm_lsp-{}", env!("CARGO_PKG_VERSION"));
 
     // Create the transport
@@ -178,8 +179,8 @@ pub fn main() -> Result<()> {
                     &mut names_to_info.directives,
                 );
             }
-            //TODO: which assembler is none :)
-            Assembler::Go | Assembler::Z80 | Assembler::None => {}
+            //TODO: a project must always specify it assember and arch
+            Assembler::Go | Assembler::Z80 => {}
         }
     }
 
@@ -336,7 +337,7 @@ pub fn main() -> Result<()> {
                     &mut names_to_info.registers,
                 );
             }
-            Arch::X86_AND_X86_64 | Arch::None => {}
+            Arch::X86_AND_X86_64 => {}
         }
     }
 
