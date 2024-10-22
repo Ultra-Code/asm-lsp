@@ -652,7 +652,7 @@ pub type NameToRegisterMap = HashMap<(Arch, String), Register>;
 
 pub type NameToDirectiveMap = HashMap<(Assembler, String), Directive>;
 
-pub trait Hoverable: Display + Clone {}
+pub trait Hoverable: Display {}
 pub trait Completable: Display {}
 pub trait ArchOrAssembler: Clone + Copy {}
 
@@ -932,14 +932,21 @@ impl RootConfig {
                 asm_set.insert(project.config.assembler);
                 arch_set.insert(project.config.instruction_set);
             }
-        }
-        if let Some(ref root) = self.default_config {
+
+            EffectiveAssembersAndArch {
+                archs: arch_set.into_iter().collect(),
+                assemblers: asm_set.into_iter().collect(),
+            }
+        } else if let Some(ref root) = self.default_config {
             asm_set.insert(root.assembler);
             arch_set.insert(root.instruction_set);
-        }
-        EffectiveAssembersAndArch {
-            archs: arch_set.into_iter().collect(),
-            assemblers: asm_set.into_iter().collect(),
+
+            EffectiveAssembersAndArch {
+                archs: arch_set.into_iter().collect(),
+                assemblers: asm_set.into_iter().collect(),
+            }
+        } else {
+            unreachable!()
         }
     }
 
