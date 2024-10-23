@@ -26,8 +26,8 @@ mod tests {
     fn empty_test_config() -> Config {
         Config {
             version: Some("0.1".to_string()),
-            assembler: Assembler::Gas,
-            instruction_set: Arch::X86_64,
+            assembler: Assembler::None,
+            instruction_set: Arch::None,
             opts: Some(ConfigOptions {
                 compile_flags_txt: None,
                 compiler: None,
@@ -41,7 +41,7 @@ mod tests {
     fn z80_test_config() -> Config {
         Config {
             version: Some("0.1".to_string()),
-            assembler: Assembler::Gas,
+            assembler: Assembler::None,
             instruction_set: Arch::Z80,
             opts: Some(ConfigOptions::default()),
             client: None,
@@ -51,7 +51,7 @@ mod tests {
     fn arm_test_config() -> Config {
         Config {
             version: Some("0.1".to_string()),
-            assembler: Assembler::Gas,
+            assembler: Assembler::None,
             instruction_set: Arch::ARM,
             opts: Some(ConfigOptions::default()),
             client: None,
@@ -61,7 +61,7 @@ mod tests {
     fn riscv_test_config() -> Config {
         Config {
             version: Some("0.1".to_string()),
-            assembler: Assembler::Gas,
+            assembler: Assembler::None,
             instruction_set: Arch::RISCV,
             opts: Some(ConfigOptions::default()),
             client: None,
@@ -86,7 +86,7 @@ mod tests {
         Config {
             version: Some("0.1".to_string()),
             assembler: Assembler::Gas,
-            instruction_set: Arch::X86_64,
+            instruction_set: Arch::None,
             opts: Some(ConfigOptions::default()),
             client: None,
         }
@@ -96,7 +96,7 @@ mod tests {
         Config {
             version: Some("0.1".to_string()),
             assembler: Assembler::Masm,
-            instruction_set: Arch::X86_64,
+            instruction_set: Arch::None,
             opts: Some(ConfigOptions::default()),
             client: None,
         }
@@ -106,7 +106,7 @@ mod tests {
         Config {
             version: Some("0.1".to_string()),
             assembler: Assembler::Nasm,
-            instruction_set: Arch::X86_64,
+            instruction_set: Arch::None,
             opts: Some(ConfigOptions::default()),
             client: None,
         }

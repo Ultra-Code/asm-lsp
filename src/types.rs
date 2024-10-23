@@ -687,6 +687,8 @@ pub enum Arch {
     RISCV,
     #[strum(serialize = "z80")]
     Z80,
+    #[strum(disabled)]
+    None,
 }
 
 // Custom serialization for InstructionSet to ensure variant are
@@ -704,6 +706,7 @@ impl Serialize for Arch {
             Self::X86_AND_X86_64 => map.serialize_entry("x86_and_x86_64", &true)?,
             Self::RISCV => map.serialize_entry("riscv", &true)?,
             Self::Z80 => map.serialize_entry("z80", &true)?,
+            Self::None => unreachable!(),
         }
         map.end()
     }
@@ -775,6 +778,7 @@ impl std::fmt::Display for Arch {
             Self::ARM => write!(f, "arm")?,
             Self::Z80 => write!(f, "z80")?,
             Self::RISCV => write!(f, "riscv")?,
+            Self::None => write!(f, "None")?,
         }
         Ok(())
     }
@@ -793,6 +797,8 @@ pub enum Assembler {
     Nasm,
     #[strum(serialize = "z80")]
     Z80,
+    #[strum(disabled)]
+    None,
 }
 
 // Custom serialization to allow an Assember variant to be serialized in a
@@ -809,6 +815,7 @@ impl Serialize for Assembler {
             Self::Masm => map.serialize_entry("masm", &true)?,
             Self::Go => map.serialize_entry("go", &true)?,
             Self::Z80 => map.serialize_entry("z80", &true)?,
+            Self::None => unreachable!(),
         }
         map.end()
     }
@@ -1150,8 +1157,8 @@ impl Config {
     pub const fn empty() -> Self {
         Self {
             version: None,
-            assembler: Assembler::Gas,
-            instruction_set: Arch::X86_64,
+            assembler: Assembler::None,
+            instruction_set: Arch::None,
             opts: Some(ConfigOptions::empty()),
             client: None,
         }

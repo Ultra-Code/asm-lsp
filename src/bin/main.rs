@@ -180,7 +180,7 @@ pub fn main() -> Result<()> {
                 );
             }
             //TODO: a project must always specify it assember and arch
-            Assembler::Go | Assembler::Z80 => {}
+            Assembler::Go | Assembler::Z80 | Assembler::None => {}
         }
     }
 
@@ -337,7 +337,7 @@ pub fn main() -> Result<()> {
                     &mut names_to_info.registers,
                 );
             }
-            Arch::X86_AND_X86_64 => {}
+            Arch::X86_AND_X86_64 | Arch::None => {}
         }
     }
 
