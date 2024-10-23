@@ -390,7 +390,7 @@ pub fn get_compile_cmd_for_path(config: &RootConfig, req_uri: &Uri) -> Option<Co
                     |opts| {
                         let compiler_with_args = {
                             opts.compile_flags_txt.as_ref().map_or_else(
-                                || vec![],
+                                std::vec::Vec::new,
                                 |project_compile_flags| {
                                     let mut compile_cmd = vec![];
                                     compile_cmd.push(compiler.to_owned());

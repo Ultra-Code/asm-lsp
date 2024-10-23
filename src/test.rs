@@ -26,9 +26,10 @@ mod tests {
     fn empty_test_config() -> Config {
         Config {
             version: Some("0.1".to_string()),
-            assembler: Assembler::None,
-            instruction_set: Arch::None,
+            assembler: Assembler::Gas,
+            instruction_set: Arch::X86_64,
             opts: Some(ConfigOptions {
+                compile_flags_txt: None,
                 compiler: None,
                 diagnostics: None,
                 default_diagnostics: None,
@@ -40,7 +41,7 @@ mod tests {
     fn z80_test_config() -> Config {
         Config {
             version: Some("0.1".to_string()),
-            assembler: Assembler::None,
+            assembler: Assembler::Gas,
             instruction_set: Arch::Z80,
             opts: Some(ConfigOptions::default()),
             client: None,
@@ -50,7 +51,7 @@ mod tests {
     fn arm_test_config() -> Config {
         Config {
             version: Some("0.1".to_string()),
-            assembler: Assembler::None,
+            assembler: Assembler::Gas,
             instruction_set: Arch::ARM,
             opts: Some(ConfigOptions::default()),
             client: None,
@@ -60,7 +61,7 @@ mod tests {
     fn riscv_test_config() -> Config {
         Config {
             version: Some("0.1".to_string()),
-            assembler: Assembler::None,
+            assembler: Assembler::Gas,
             instruction_set: Arch::RISCV,
             opts: Some(ConfigOptions::default()),
             client: None,
@@ -85,7 +86,7 @@ mod tests {
         Config {
             version: Some("0.1".to_string()),
             assembler: Assembler::Gas,
-            instruction_set: Arch::None,
+            instruction_set: Arch::X86_64,
             opts: Some(ConfigOptions::default()),
             client: None,
         }
@@ -95,7 +96,7 @@ mod tests {
         Config {
             version: Some("0.1".to_string()),
             assembler: Assembler::Masm,
-            instruction_set: Arch::None,
+            instruction_set: Arch::X86_64,
             opts: Some(ConfigOptions::default()),
             client: None,
         }
@@ -105,7 +106,7 @@ mod tests {
         Config {
             version: Some("0.1".to_string()),
             assembler: Assembler::Nasm,
-            instruction_set: Arch::None,
+            instruction_set: Arch::X86_64,
             opts: Some(ConfigOptions::default()),
             client: None,
         }
@@ -129,10 +130,10 @@ mod tests {
     }
 
     #[derive(Debug)]
-    struct GlobalVars<'a> {
-        names_to_instructions: NameToInstructionMap<'a>,
-        names_to_registers: NameToRegisterMap<'a>,
-        names_to_directives: NameToDirectiveMap<'a>,
+    struct GlobalVars {
+        names_to_instructions: NameToInstructionMap,
+        names_to_registers: NameToRegisterMap,
+        names_to_directives: NameToDirectiveMap,
         instr_completion_items: Vec<(Arch, CompletionItem)>,
         reg_completion_items: Vec<(Arch, CompletionItem)>,
         directive_completion_items: Vec<(Assembler, CompletionItem)>,
@@ -158,7 +159,7 @@ mod tests {
         }
     }
 
-    impl GlobalVars<'_> {
+    impl GlobalVars {
         fn new() -> Self {
             Self {
                 names_to_instructions: NameToInstructionMap::new(),
@@ -282,7 +283,7 @@ mod tests {
         Ok(info)
     }
 
-    fn init_test_store(info: &GlobalInfo) -> GlobalVars<'_> {
+    fn init_test_store(info: GlobalInfo) -> GlobalVars {
         let mut store = GlobalVars::new();
 
         let mut x86_cache_path = get_cache_dir().unwrap();
@@ -293,79 +294,67 @@ mod tests {
 
         populate_name_to_instruction_map(
             Arch::X86,
-            &info.x86_instructions,
+            info.x86_instructions,
             &mut store.names_to_instructions,
         );
 
         populate_name_to_instruction_map(
             Arch::X86_64,
-            &info.x86_64_instructions,
+            info.x86_64_instructions,
             &mut store.names_to_instructions,
         );
 
         populate_name_to_instruction_map(
             Arch::ARM,
-            &info.arm_instructions,
+            info.arm_instructions,
             &mut store.names_to_instructions,
         );
 
         populate_name_to_instruction_map(
             Arch::RISCV,
-            &info.riscv_instructions,
+            info.riscv_instructions,
             &mut store.names_to_instructions,
         );
 
         populate_name_to_instruction_map(
             Arch::Z80,
-            &info.z80_instructions,
+            info.z80_instructions,
             &mut store.names_to_instructions,
         );
 
-        populate_name_to_register_map(
-            Arch::X86,
-            &info.x86_registers,
-            &mut store.names_to_registers,
-        );
+        populate_name_to_register_map(Arch::X86, info.x86_registers, &mut store.names_to_registers);
 
         populate_name_to_register_map(
             Arch::X86_64,
-            &info.x86_64_registers,
+            info.x86_64_registers,
             &mut store.names_to_registers,
         );
 
-        populate_name_to_register_map(
-            Arch::ARM,
-            &info.arm_registers,
-            &mut store.names_to_registers,
-        );
+        populate_name_to_register_map(Arch::ARM, info.arm_registers, &mut store.names_to_registers);
 
         populate_name_to_register_map(
             Arch::RISCV,
-            &info.riscv_registers,
+            info.riscv_registers,
             &mut store.names_to_registers,
         );
 
-        populate_name_to_register_map(
-            Arch::Z80,
-            &info.z80_registers,
-            &mut store.names_to_registers,
-        );
+        populate_name_to_register_map(Arch::Z80, info.z80_registers, &mut store.names_to_registers);
 
         populate_name_to_directive_map(
             Assembler::Gas,
-            &info.gas_directives,
+            info.gas_directives,
             &mut store.names_to_directives,
         );
 
         populate_name_to_directive_map(
             Assembler::Masm,
-            &info.masm_directives,
+            info.masm_directives,
             &mut store.names_to_directives,
         );
 
         populate_name_to_directive_map(
             Assembler::Nasm,
-            &info.nasm_directives,
+            info.nasm_directives,
             &mut store.names_to_directives,
         );
 
@@ -389,7 +378,7 @@ mod tests {
 
     fn test_hover(source: &str, expected: &str, config: &Config) {
         let info = init_global_info(config).expect("Failed to load info");
-        let globals = init_test_store(&info);
+        let globals = init_test_store(info);
 
         let mut position: Option<Position> = None;
         for (line_num, line) in source.lines().enumerate() {
@@ -482,7 +471,7 @@ mod tests {
         trigger_character: Option<String>,
     ) {
         let info = init_global_info(config).expect("Failed to load info");
-        let globals = init_test_store(&info);
+        let globals = init_test_store(info);
 
         let source_code = source.replace("<cursor>", "");
 
@@ -548,7 +537,7 @@ mod tests {
         // so another means of verification should be added here
         assert!(!resp.items.is_empty());
         for comp in &resp.items {
-            assert!(comp.kind == Some(expected_kind));
+            assert_eq!(comp.kind, Some(expected_kind));
         }
     }
 
